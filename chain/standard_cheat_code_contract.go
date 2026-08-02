@@ -59,6 +59,10 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 	if err != nil {
 		return nil, err
 	}
+	typeBytes4, err := abi.NewType("bytes4", "", nil)
+	if err != nil {
+		return nil, err
+	}
 	typeBytes32, err := abi.NewType("bytes32", "", nil)
 	if err != nil {
 		return nil, err
@@ -103,6 +107,8 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		},
 	)
 
+	addExpectRevertCheatCodes(contract, typeBytes4, typeBytes, typeAddress, typeUint64)
+
 	// Warp: Sets VM timestamp. Note that this _permanently_ updates the block timestamp for the remainder of the
 	// chain's lifecycle.
 	contract.addMethod(
@@ -145,7 +151,7 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		"roll", abi.Arguments{{Type: typeUint256}}, abi.Arguments{},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
 			// Capture the original block number
-			originalBlockNumber := tracer.chain.pendingBlockContext.BlockNumber
+			originalBlockNumber := new(big.Int).Set(tracer.chain.pendingBlockContext.BlockNumber)
 
 			// Retrieve the new block number
 			newBlockNumber := inputs[0].(*big.Int)
@@ -178,8 +184,10 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 	contract.addMethod(
 		"fee", abi.Arguments{{Type: typeUint256}}, abi.Arguments{},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
-			// Capture the original value
-			original := new(big.Int).Set(tracer.chain.pendingBlockContext.BaseFee)
+			// Capture the original values independently because the active EVM
+			// context and pending header may start with different base fees.
+			originalContextBaseFee := new(big.Int).Set(tracer.chain.pendingBlockContext.BaseFee)
+			originalHeaderBaseFee := new(big.Int).Set(tracer.chain.pendingBlock.Header.BaseFee)
 
 			// Update the pending block context and pending block's base fee
 			// The block context will reflect the base fee change in the current EVM context
@@ -193,10 +201,10 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 				// The fee's effect will naturally revert if the chain reverts. Thus, we only want to handle the
 				// case if the transaction that called fee reverts (which is why we have the nil checks).
 				if tracer.chain.pendingBlockContext != nil {
-					tracer.chain.pendingBlockContext.BaseFee.Set(original)
+					tracer.chain.pendingBlockContext.BaseFee.Set(originalContextBaseFee)
 				}
 				if tracer.chain.pendingBlock != nil {
-					tracer.chain.pendingBlock.Header.BaseFee.Set(original)
+					tracer.chain.pendingBlock.Header.BaseFee.Set(originalHeaderBaseFee)
 				}
 			})
 			return nil, nil
@@ -555,9 +563,8 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 	contract.addMethod(
 		"snapshot", abi.Arguments{}, abi.Arguments{{Type: typeUint256}},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
-			snapshotID := tracer.chain.State().Snapshot()
-
-			return []any{snapshotID}, nil
+			snapshotToken := tracer.createStateSnapshot()
+			return []any{new(big.Int).SetUint64(snapshotToken)}, nil
 		},
 	)
 
@@ -565,10 +572,8 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 	contract.addMethod(
 		"revertTo", abi.Arguments{{Type: typeUint256}}, abi.Arguments{{Type: typeBool}},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
-			snapshotID := inputs[0].(*big.Int)
-			tracer.chain.State().RevertToSnapshot(int(snapshotID.Int64()))
-
-			return []any{true}, nil
+			reverted, rawReturnData := tracer.revertToStateSnapshot(inputs[0].(*big.Int))
+			return []any{reverted}, rawReturnData
 		},
 	)
 

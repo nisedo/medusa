@@ -76,3 +76,5 @@ require (
 	golang.org/x/sync v0.13.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/crytic/medusa-geth => github.com/nisedo/medusa-geth v0.0.0-20260802162102-a4e6edf4db13
