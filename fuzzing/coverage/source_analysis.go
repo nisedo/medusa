@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/crytic/medusa-geth/core/vm"
@@ -63,12 +64,19 @@ func (s *SourceAnalysis) CoveredLineCount() int {
 
 // shouldExcludeFile checks if a file path matches any of the exclusion patterns
 func shouldExcludeFile(filePath string, exclusionPatterns []string) bool {
+	filePath = normalizeCoveragePath(filePath)
 	for _, pattern := range exclusionPatterns {
+		pattern = normalizeCoveragePath(pattern)
 		if matched, err := doublestar.Match(pattern, filePath); err == nil && matched {
 			return true
 		}
 	}
 	return false
+}
+
+// normalizeCoveragePath ensures exclusion patterns behave consistently across platforms and compiler-produced paths.
+func normalizeCoveragePath(path string) string {
+	return strings.ReplaceAll(filepath.ToSlash(path), "\\", "/")
 }
 
 // filterExcludedFiles removes files matching exclusion patterns from the source analysis.
