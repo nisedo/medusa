@@ -3,7 +3,7 @@ name: Nix
 on:
   pull_request:
     branches:
-      - master
+      - nisedo-dev
     paths:
       - "go.mod"
       - "go.sum"
@@ -124,7 +124,7 @@ jobs:
               **To fix this:**
               Update the vendorHash line in \`flake.nix\` with the updated hash above.
 
-              See the [Contributing Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/master/CONTRIBUTING.md#nix-considerations) for more information.`;
+              See the [Contributing Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.repository.default_branch}/CONTRIBUTING.md#nix-considerations) for more information.`;
             } else {
               body = `${marker}
               ## \u2705 vendorHash Matches

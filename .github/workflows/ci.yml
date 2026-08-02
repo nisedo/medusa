@@ -5,11 +5,12 @@ on:
   push:
     branches:
       - master
+      - nisedo-dev
     tags:
       - "v*"
   pull_request:
     branches:
-      - master
+      - nisedo-dev
 
 concurrency:
   group: ci-${{ github.ref }}
