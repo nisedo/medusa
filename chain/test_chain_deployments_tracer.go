@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"bytes"
 	"math/big"
 
 	"github.com/crytic/medusa-geth/common"
@@ -39,6 +40,12 @@ type testChainDeploymentsTracerCallFrame struct {
 	results []types.DeployedContractBytecodeChange
 }
 
+type testChainDeploymentsTracerSnapshot struct {
+	results           []types.DeployedContractBytecodeChange
+	callDepth         uint64
+	pendingCallFrames []*testChainDeploymentsTracerCallFrame
+}
+
 // newTestChainDeploymentsTracer creates a testChainDeploymentsTracer
 func newTestChainDeploymentsTracer() *testChainDeploymentsTracer {
 	tracer := &testChainDeploymentsTracer{}
@@ -60,6 +67,83 @@ func newTestChainDeploymentsTracer() *testChainDeploymentsTracer {
 // NativeTracer returns the underlying TestChainTracer.
 func (t *testChainDeploymentsTracer) NativeTracer() *TestChainTracer {
 	return t.nativeTracer
+}
+
+func (t *testChainDeploymentsTracer) snapshot() *testChainDeploymentsTracerSnapshot {
+	if t == nil {
+		return nil
+	}
+	snapshot := &testChainDeploymentsTracerSnapshot{
+		results:           cloneDeploymentChanges(t.results),
+		callDepth:         t.callDepth,
+		pendingCallFrames: make([]*testChainDeploymentsTracerCallFrame, len(t.pendingCallFrames)),
+	}
+	for index, frame := range t.pendingCallFrames {
+		snapshot.pendingCallFrames[index] = &testChainDeploymentsTracerCallFrame{
+			results: cloneDeploymentChanges(frame.results),
+		}
+	}
+	return snapshot
+}
+
+func (t *testChainDeploymentsTracer) restore(snapshot *testChainDeploymentsTracerSnapshot) {
+	if t == nil || snapshot == nil {
+		return
+	}
+	// A snapshot token can outlive successful child frames and be consumed by
+	// an ancestor. Keep the current live stack, but fold the captured child
+	// results into that ancestor exactly as successful OnExit calls would.
+	if t.callDepth > snapshot.callDepth ||
+		int(t.callDepth) >= len(t.pendingCallFrames) ||
+		int(snapshot.callDepth) >= len(snapshot.pendingCallFrames) {
+		return
+	}
+	t.results = cloneDeploymentChanges(snapshot.results)
+	if t.callDepth == 0 {
+		t.pendingCallFrames = []*testChainDeploymentsTracerCallFrame{{
+			results: cloneDeploymentChanges(snapshot.pendingCallFrames[0].results),
+		}}
+		return
+	}
+
+	currentDepth := int(t.callDepth)
+	currentCallerDepth := currentDepth - 1
+	snapshotCheatDepth := int(snapshot.callDepth)
+	restoredFrames := make([]*testChainDeploymentsTracerCallFrame, currentDepth+1)
+	for depth := 0; depth < currentCallerDepth; depth++ {
+		restoredFrames[depth] = &testChainDeploymentsTracerCallFrame{
+			results: cloneDeploymentChanges(snapshot.pendingCallFrames[depth].results),
+		}
+	}
+
+	callerResults := make([]types.DeployedContractBytecodeChange, 0)
+	for depth := currentCallerDepth; depth < snapshotCheatDepth; depth++ {
+		callerResults = append(
+			callerResults,
+			cloneDeploymentChanges(snapshot.pendingCallFrames[depth].results)...,
+		)
+	}
+	restoredFrames[currentCallerDepth] = &testChainDeploymentsTracerCallFrame{results: callerResults}
+	restoredFrames[currentDepth] = &testChainDeploymentsTracerCallFrame{
+		results: cloneDeploymentChanges(snapshot.pendingCallFrames[snapshotCheatDepth].results),
+	}
+	t.pendingCallFrames = restoredFrames
+}
+
+func cloneDeploymentChanges(
+	changes []types.DeployedContractBytecodeChange,
+) []types.DeployedContractBytecodeChange {
+	cloned := make([]types.DeployedContractBytecodeChange, len(changes))
+	for index, change := range changes {
+		cloned[index] = change
+		if change.Contract != nil {
+			contract := *change.Contract
+			contract.InitBytecode = bytes.Clone(change.Contract.InitBytecode)
+			contract.RuntimeBytecode = bytes.Clone(change.Contract.RuntimeBytecode)
+			cloned[index].Contract = &contract
+		}
+	}
+	return cloned
 }
 
 // OnTxStart is called upon the start of transaction execution, as defined by tracers.Tracer.
@@ -121,7 +205,9 @@ func (t *testChainDeploymentsTracer) OnExit(depth int, output []byte, gasUsed ui
 
 	// If we didn't encounter any errors and this is the top level call frame, commit all the results
 	if isTopLevelFrame {
-		t.results = append(t.results, t.pendingCallFrames[t.callDepth].results...)
+		if err == nil {
+			t.results = append(t.results, t.pendingCallFrames[t.callDepth].results...)
+		}
 	} else {
 		// If we didn't encounter an error in this call frame, we push our captured data up one frame.
 		if err == nil {

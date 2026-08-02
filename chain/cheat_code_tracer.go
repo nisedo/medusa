@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"maps"
 	"math/big"
 
 	"github.com/crytic/medusa-geth/common"
@@ -32,6 +33,16 @@ type cheatCodeTracer struct {
 
 	// nativeTracer is the underlying tracer interface that the cheatcode tracer follows
 	nativeTracer *TestChainTracer
+
+	// expectRevertFailed latches an expectation error for the rest of the
+	// transaction so Solidity cannot hide it with try/catch or a low-level call.
+	expectRevertFailed bool
+
+	// stateSnapshots maps opaque user-facing snapshot tokens to StateDB and
+	// tracer-managed state checkpoints. The token counter remains monotonic
+	// across transactions.
+	stateSnapshots    map[uint64]*cheatCodeStateSnapshot
+	nextSnapshotToken uint64
 }
 
 // cheatCodeTracerCallFrame represents per-call-frame data traced by a cheatCodeTracer.
@@ -72,12 +83,28 @@ type cheatCodeTracerCallFrame struct {
 
 	// extraData describes additional data to be stored for this call frame.
 	extraData map[string]any
+
+	// expectRevert is armed on the frame that called vm.expectRevert.
+	expectRevert *expectRevertExpectation
+
+	// expectRevertOwner points from the selected non-cheat child to the frame
+	// whose expectation it must satisfy.
+	expectRevertOwner *cheatCodeTracerCallFrame
+
+	// isExpectedRevertTarget marks the direct child selected by vm.expectRevert.
+	isExpectedRevertTarget bool
+
+	// expectedRevertFailureDepth and expectedRevertRevertedBy retain the
+	// deepest failing frame for optional reverter matching.
+	expectedRevertFailureDepth int
+	expectedRevertRevertedBy   *common.Address
 }
 
 // newCheatCodeTracerCallFrame creates a cheatCodeTracerCallFrame and returns it.
 func newCheatCodeTracerCallFrame() *cheatCodeTracerCallFrame {
 	result := &cheatCodeTracerCallFrame{
-		extraData: make(map[string]any),
+		extraData:                  make(map[string]any),
+		expectedRevertFailureDepth: -1,
 	}
 	return result
 }
@@ -149,6 +176,8 @@ func (t *cheatCodeTracer) OnTxStart(vm *tracing.VMContext, tx *coretypes.Transac
 	t.results = &cheatCodeTracerResults{
 		onChainRevertHooks: nil,
 	}
+	t.expectRevertFailed = false
+	t.stateSnapshots = make(map[uint64]*cheatCodeStateSnapshot)
 	// Store our evm reference
 	t.evmContext = vm
 }
@@ -163,13 +192,14 @@ func (t *cheatCodeTracer) OnEnter(depth int, typ byte, from common.Address, to c
 	// Create our call frame struct to track data for this initial entry call frame.
 	isTopLevelFrame := depth == 0
 	callFrameData := newCheatCodeTracerCallFrame()
+	var parentCallFrame *cheatCodeTracerCallFrame
 	if !isTopLevelFrame {
 		// We haven't updated our call depth yet, so obtain the "previous" call frame (current for now)
-		previousCallFrame := t.CurrentCallFrame()
+		parentCallFrame = t.CurrentCallFrame()
 
 		// We forward our "next frame hooks" to this frame, then clear them from the previous frame.
-		callFrameData.onFrameExitRestoreHooks = previousCallFrame.onNextFrameExitRestoreHooks
-		previousCallFrame.onNextFrameExitRestoreHooks = nil
+		callFrameData.onFrameExitRestoreHooks = parentCallFrame.onNextFrameExitRestoreHooks
+		parentCallFrame.onNextFrameExitRestoreHooks = nil
 
 		// Increase our call depth now that we're entering a new call frame.
 		t.callDepth++
@@ -177,6 +207,7 @@ func (t *cheatCodeTracer) OnEnter(depth int, typ byte, from common.Address, to c
 
 	// Append our new call frame
 	t.callFrames = append(t.callFrames, callFrameData)
+	t.onExpectedRevertFrameEnter(callFrameData, parentCallFrame, to)
 
 	// Note: We do not execute events for "next frame enter" here, as we do not yet have scope information.
 	// Those events are executed when the first EVM instruction is executed in the new scope.
@@ -241,5 +272,5 @@ func (t *cheatCodeTracer) CaptureTxEndSetAdditionalResults(results *types.Messag
 	// Add our revert operations we collected for this transaction.
 	results.OnRevertHookFuncs = append(results.OnRevertHookFuncs, t.results.onChainRevertHooks...)
 	// Add the labels so that each transaction has access to it.
-	results.AdditionalResults[labelsKey] = t.chain.Labels
+	results.AdditionalResults[labelsKey] = maps.Clone(t.chain.Labels)
 }
