@@ -346,6 +346,9 @@ func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, err
 
 	// Define our shrink requests we'll collect during execution.
 	shrinkCallSequenceRequests := make([]ShrinkCallSequenceRequest, 0)
+	acceptedPrefix := make(calls.CallSequence, 0, fw.fuzzer.config.Fuzzing.CallSequenceLength)
+	assumeRejects := uint64(0)
+	assumptionRejected := false
 
 	// Our "fetch next call" method will generate new calls as needed, if we are generating a new sequence.
 	fetchElementFunc := func(currentIndex int) (*calls.CallSequenceElement, error) {
@@ -367,9 +370,33 @@ func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, err
 	// request for a shrunk call sequence, we exit our call sequence execution immediately to go fulfill the shrink
 	// request. Additionally, the execution check function will also attempt to add any return data to the value set for
 	// this call sequence. Note that the value set is reset after each call sequence (see the defer section above)
-	executionCheckFunc := func(currentlyExecutedSequence calls.CallSequence) (bool, error) {
+	executionCheckFunc := func(executedSegment calls.CallSequence) (bool, error) {
+		currentlyExecutedSequence := make(calls.CallSequence, 0, len(acceptedPrefix)+len(executedSegment))
+		currentlyExecutedSequence = append(currentlyExecutedSequence, acceptedPrefix...)
+		currentlyExecutedSequence = append(currentlyExecutedSequence, executedSegment...)
+
 		// Get the last call sequence element that was executed
 		latestCallSequenceElement := currentlyExecutedSequence[len(currentlyExecutedSequence)-1]
+		latestMessageResult := latestCallSequenceElement.ChainReference.MessageResults()
+
+		// vm.assume(false) rejects the fuzz input. Stop before mining return values, updating coverage or corpus,
+		// running tests, or counting the call as an ordinary revert.
+		if chain.IsAssumeResult(latestMessageResult.ExecutionResult) {
+			assumptionRejected = true
+			workerMetrics := fw.workerMetrics()
+			workerMetrics.assumeRejects.Add(workerMetrics.assumeRejects, big.NewInt(1))
+
+			maxAssumeRejects := fw.fuzzer.config.Fuzzing.MaxAssumeRejects
+			if maxAssumeRejects > 0 && assumeRejects >= maxAssumeRejects {
+				return true, fmt.Errorf(
+					"vm.assume rejected too many inputs while generating one call sequence (%d allowed)",
+					maxAssumeRejects,
+				)
+			}
+			assumeRejects++
+			return true, nil
+		}
+
 		// Get the decoded return values and add it to the base value set
 		// Don't throw an error since we care more about coverage than adding the return values to the base value set
 		decodedReturnValues, err := latestCallSequenceElement.DecodedReturnValues()
@@ -409,18 +436,68 @@ func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, err
 		return len(shrinkCallSequenceRequests) > 0, nil
 	}
 
-	// Execute our call sequence.
+	// Execute the call sequence. If vm.assume rejects a generated call, rebuild the accepted prefix from the testing
+	// base and retry that same sequence depth with a newly generated call.
 	var executedSequence calls.CallSequence
-	executedSequence, err = calls.ExecuteCallSequenceIteratively(fw.chain, fetchElementFunc, executionCheckFunc)
+	for {
+		assumptionRejected = false
 
-	// If we encountered an error, report it.
-	if err != nil {
-		// If a corpus element fails to execute, log it (in debug mode) and exit the function early
-		if !isNewSequence {
-			fw.fuzzer.logger.Debug("[Worker ", fw.workerIndex, "] corpus element has been disabled due to an error:", err)
+		var executedSegment calls.CallSequence
+		executedSegment, err = calls.ExecuteCallSequenceIteratively(fw.chain, fetchElementFunc, executionCheckFunc)
+
+		// If we encountered an error, report it.
+		if err != nil {
+			// If a corpus element fails to execute, log it (in debug mode) and exit the function early
+			if !isNewSequence {
+				fw.fuzzer.logger.Debug("[Worker ", fw.workerIndex, "] corpus element has been disabled due to an error:", err)
+				return nil, nil
+			}
+			return nil, err
+		}
+
+		if !assumptionRejected {
+			executedSequence = append(acceptedPrefix, executedSegment...)
+			break
+		}
+
+		// A disabled reject limit must not prevent a timeout or an explicit stop from ending the campaign.
+		if utils.CheckContextDone(fw.fuzzer.ctx) {
 			return nil, nil
 		}
-		return nil, err
+
+		// Saved corpus sequences are immutable. If one now rejects because of vm.assume, disable it rather than
+		// replacing one of its calls.
+		if !isNewSequence {
+			return nil, nil
+		}
+
+		if len(executedSegment) == 0 {
+			return nil, fmt.Errorf("vm.assume rejected a call that was not recorded in the executed sequence")
+		}
+		acceptedPrefix = append(acceptedPrefix, executedSegment[:len(executedSegment)-1]...)
+
+		err = fw.sequenceGenerator.RejectLastSequenceElement()
+		if err != nil {
+			return nil, err
+		}
+
+		err = fw.chain.RevertToBlockIndex(fw.testingBaseBlockIndex)
+		if err != nil {
+			return nil, fmt.Errorf("could not reset the chain after vm.assume rejected an input: %w", err)
+		}
+
+		acceptedPrefix, err = calls.ExecuteCallSequence(fw.chain, acceptedPrefix)
+		if err != nil {
+			return nil, fmt.Errorf("could not replay the accepted call prefix after vm.assume rejected an input: %w", err)
+		}
+		for _, replayedElement := range acceptedPrefix {
+			if chain.IsAssumeResult(replayedElement.ChainReference.MessageResults().ExecutionResult) {
+				return nil, fmt.Errorf(
+					"an accepted call prefix produced vm.assume(false) when replayed; " +
+						"accepted-prefix calls must be deterministic",
+				)
+			}
+		}
 	}
 
 	// If our fuzzer context is done, exit out immediately without results.
@@ -475,7 +552,14 @@ func (fw *FuzzerWorker) testShrunkenCallSequence(possibleShrunkSequence calls.Ca
 	// Our "post-execution check" method will check coverage and call all testing functions. If one returns a
 	// request for a shrunk call sequence, we exit our call sequence execution immediately to go fulfill the shrink
 	// request.
+	assumptionRejected := false
 	executionCheckFunc := func(currentlyExecutedSequence calls.CallSequence) (bool, error) {
+		latestCallSequenceElement := currentlyExecutedSequence[len(currentlyExecutedSequence)-1]
+		if chain.IsAssumeResult(latestCallSequenceElement.ChainReference.MessageResults().ExecutionResult) {
+			assumptionRejected = true
+			return true, nil
+		}
+
 		// Check for updates to coverage and corpus (using only the section of the sequence we tested so far).
 		// If we detect coverage changes, add this sequence.
 		seqErr := fw.fuzzer.corpus.CheckSequenceCoverageAndUpdate(currentlyExecutedSequence, fw.getNewCorpusCallSequenceWeight(), true)
@@ -497,6 +581,11 @@ func (fw *FuzzerWorker) testShrunkenCallSequence(possibleShrunkSequence calls.Ca
 	_, err = calls.ExecuteCallSequenceIteratively(fw.chain, fetchElementFunc, executionCheckFunc)
 	if err != nil {
 		return false, err
+	}
+
+	// A rejected fuzz input cannot prove that a shrink candidate still reproduces a failure.
+	if assumptionRejected {
+		return false, nil
 	}
 
 	// If the emergency context is cancelled, we exit out immediately without results.

@@ -289,6 +289,7 @@ func TestCheatCodes(t *testing.T) {
 		"testdata/contracts/cheat_codes/vm/warp_permanent.sol",
 		"testdata/contracts/cheat_codes/vm/prevrandao.sol",
 		"testdata/contracts/cheat_codes/vm/get_code.sol",
+		"testdata/contracts/cheat_codes/vm/assume.sol",
 	}
 
 	// FFI test will fail on Windows because "echo" is a shell command, not a system command, so we diverge these
@@ -332,6 +333,275 @@ func TestCheatCodes(t *testing.T) {
 			},
 		})
 	}
+}
+
+type scriptedBoolValueGenerator struct {
+	valuegeneration.ValueGenerator
+	values []bool
+	index  int
+}
+
+func (g *scriptedBoolValueGenerator) GenerateBool() bool {
+	if g.index >= len(g.values) {
+		return true
+	}
+	value := g.values[g.index]
+	g.index++
+	return value
+}
+
+func (g *scriptedBoolValueGenerator) GenerateInteger(bool, int) *big.Int {
+	return big.NewInt(0)
+}
+
+// TestAssumeCheatCode verifies accepted inputs, rejected inputs, and same-depth replacement.
+func TestAssumeCheatCode(t *testing.T) {
+	const filePath = "testdata/contracts/cheat_codes/vm/assume.sol"
+
+	t.Run("true condition continues", func(t *testing.T) {
+		runFuzzerTest(t, &fuzzerSolcFileTest{
+			filePath: filePath,
+			configUpdates: func(config *config.ProjectConfig) {
+				config.Fuzzing.TargetContracts = []string{"TestContract"}
+				config.Fuzzing.Workers = 1
+				config.Fuzzing.CallSequenceLength = 1
+				config.Fuzzing.Testing.TargetFunctionSignatures = []string{"TestContract.assumeTrue()"}
+				config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+				config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+				config.Slither.UseSlither = false
+			},
+			method: func(f *fuzzerTestContext) {
+				f.fuzzer.Hooks.CallSequenceTestFuncs = append(
+					f.fuzzer.Hooks.CallSequenceTestFuncs,
+					func(_ *FuzzerWorker, _ calls.CallSequence) ([]ShrinkCallSequenceRequest, error) {
+						f.fuzzer.Stop()
+						return nil, nil
+					},
+				)
+
+				err := f.fuzzer.Start()
+				assert.NoError(f.t, err)
+				assertFailedTestsExpected(f, false)
+				assert.Positive(f.t, f.fuzzer.metrics.CallsTested().Uint64())
+				assert.Zero(f.t, f.fuzzer.metrics.AssumeRejects().Uint64())
+			},
+		})
+	})
+
+	t.Run("retries rejected depth and preserves prefix", func(t *testing.T) {
+		runFuzzerTest(t, &fuzzerSolcFileTest{
+			filePath: filePath,
+			configUpdates: func(config *config.ProjectConfig) {
+				config.Fuzzing.TargetContracts = []string{"TestContract"}
+				config.Fuzzing.Workers = 1
+				config.Fuzzing.Timeout = 5
+				config.Fuzzing.CallSequenceLength = 3
+				config.Fuzzing.MaxAssumeRejects = 3
+				config.Fuzzing.Testing.TargetFunctionSignatures = []string{"TestContract.step(bool)"}
+				config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+				config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+				config.Slither.UseSlither = false
+			},
+			method: func(f *fuzzerTestContext) {
+				newGeneratorConfig := f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc
+				f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc = func(
+					fuzzer *Fuzzer,
+					valueSet *valuegeneration.ValueSet,
+					randomProvider *rand.Rand,
+				) (*CallSequenceGeneratorConfig, error) {
+					generatorConfig, err := newGeneratorConfig(fuzzer, valueSet, randomProvider)
+					if err != nil {
+						return nil, err
+					}
+					generatorConfig.ValueGenerator = &scriptedBoolValueGenerator{
+						ValueGenerator: generatorConfig.ValueGenerator,
+						values:         []bool{true, true, false, false, true},
+					}
+					return generatorConfig, nil
+				}
+
+				acceptedReturnValues := make([]uint64, 0, 3)
+				pendingMessageCounts := make([]int, 0, 3)
+				f.fuzzer.Hooks.CallSequenceTestFuncs = append(
+					f.fuzzer.Hooks.CallSequenceTestFuncs,
+					func(worker *FuzzerWorker, sequence calls.CallSequence) ([]ShrinkCallSequenceRequest, error) {
+						decoded, err := sequence[len(sequence)-1].DecodedReturnValues()
+						assert.NoError(f.t, err)
+						if len(decoded) == 1 {
+							acceptedReturnValues = append(
+								acceptedReturnValues,
+								decoded[0].(*big.Int).Uint64(),
+							)
+						}
+						pendingMessageCounts = append(
+							pendingMessageCounts,
+							len(worker.chain.PendingBlock().MessageResults),
+						)
+						if len(sequence) == 3 {
+							f.fuzzer.Stop()
+						}
+						return nil, nil
+					},
+				)
+
+				err := f.fuzzer.Start()
+				assert.NoError(f.t, err)
+				assert.Equal(f.t, []uint64{1, 2, 3}, acceptedReturnValues)
+				assert.Equal(f.t, []int{1, 2, 3}, pendingMessageCounts)
+				assert.EqualValues(f.t, 3, f.fuzzer.metrics.CallsTested().Uint64())
+				assert.EqualValues(f.t, 2, f.fuzzer.metrics.AssumeRejects().Uint64())
+				assertFailedTestsExpected(f, false)
+			},
+		})
+	})
+
+	t.Run("false condition rejects", func(t *testing.T) {
+		runFuzzerTest(t, &fuzzerSolcFileTest{
+			filePath: filePath,
+			configUpdates: func(config *config.ProjectConfig) {
+				config.Fuzzing.TargetContracts = []string{"TestContract"}
+				config.Fuzzing.Workers = 1
+				config.Fuzzing.Timeout = 5
+				config.Fuzzing.TestLimit = 1
+				config.Fuzzing.CallSequenceLength = 1
+				config.Fuzzing.MaxAssumeRejects = 3
+				config.Fuzzing.Testing.TargetFunctionSignatures = []string{"TestContract.assumeFalse()"}
+				config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+				config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+				config.Slither.UseSlither = false
+			},
+			method: func(f *fuzzerTestContext) {
+				callSequenceTestCount := 0
+				f.fuzzer.Hooks.CallSequenceTestFuncs = append(
+					f.fuzzer.Hooks.CallSequenceTestFuncs,
+					func(_ *FuzzerWorker, _ calls.CallSequence) ([]ShrinkCallSequenceRequest, error) {
+						callSequenceTestCount++
+						return nil, nil
+					},
+				)
+
+				err := f.fuzzer.Start()
+				assert.ErrorContains(
+					f.t,
+					err,
+					"vm.assume rejected too many inputs while generating one call sequence (3 allowed)",
+				)
+				assert.Zero(f.t, f.fuzzer.metrics.CallsTested().Uint64())
+				assert.EqualValues(f.t, 4, f.fuzzer.metrics.AssumeRejects().Uint64())
+				assert.Zero(f.t, callSequenceTestCount)
+				assertFailedTestsExpected(f, false)
+				assertCorpusCallSequencesCollected(f, false)
+			},
+		})
+	})
+
+	t.Run("disabled reject limit still respects timeout", func(t *testing.T) {
+		runFuzzerTest(t, &fuzzerSolcFileTest{
+			filePath: filePath,
+			configUpdates: func(config *config.ProjectConfig) {
+				config.Fuzzing.TargetContracts = []string{"TestContract"}
+				config.Fuzzing.Workers = 1
+				config.Fuzzing.Timeout = 1
+				config.Fuzzing.CallSequenceLength = 1
+				config.Fuzzing.MaxAssumeRejects = 0
+				config.Fuzzing.Testing.TargetFunctionSignatures = []string{"TestContract.assumeFalse()"}
+				config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+				config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+				config.Slither.UseSlither = false
+			},
+			method: func(f *fuzzerTestContext) {
+				err := f.fuzzer.Start()
+				assert.NoError(f.t, err)
+				assert.Zero(f.t, f.fuzzer.metrics.CallsTested().Uint64())
+				assert.Positive(f.t, f.fuzzer.metrics.AssumeRejects().Uint64())
+				assertFailedTestsExpected(f, false)
+			},
+		})
+	})
+
+	t.Run("rejected shrink candidate skips verification and corpus", func(t *testing.T) {
+		runFuzzerTest(t, &fuzzerSolcFileTest{
+			filePath: filePath,
+			configUpdates: func(config *config.ProjectConfig) {
+				config.Fuzzing.TargetContracts = []string{"TestContract"}
+				config.Fuzzing.Workers = 1
+				config.Fuzzing.Timeout = 5
+				config.Fuzzing.CallSequenceLength = 1
+				config.Fuzzing.Testing.TargetFunctionSignatures = []string{"TestContract.step(bool)"}
+				config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+				config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+				config.Slither.UseSlither = false
+			},
+			method: func(f *fuzzerTestContext) {
+				newGeneratorConfig := f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc
+				f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc = func(
+					fuzzer *Fuzzer,
+					valueSet *valuegeneration.ValueSet,
+					randomProvider *rand.Rand,
+				) (*CallSequenceGeneratorConfig, error) {
+					generatorConfig, err := newGeneratorConfig(fuzzer, valueSet, randomProvider)
+					if err != nil {
+						return nil, err
+					}
+					generatorConfig.ValueGenerator = &scriptedBoolValueGenerator{
+						ValueGenerator: generatorConfig.ValueGenerator,
+						values:         []bool{true},
+					}
+					return generatorConfig, nil
+				}
+
+				shrinkTestRan := false
+				verifierCalls := 0
+				f.fuzzer.Events.WorkerCreated.Subscribe(func(event FuzzerWorkerCreatedEvent) error {
+					event.Worker.Events.CallSequenceTested.Subscribe(
+						func(event FuzzerWorkerCallSequenceTestedEvent) error {
+							if shrinkTestRan {
+								return nil
+							}
+							shrinkTestRan = true
+
+							candidate, err := event.Worker.sequenceGenerator.baseSequence[0].Clone()
+							if err != nil {
+								return err
+							}
+							candidate.Call.DataAbiValues.InputValues[0] = false
+							candidate.Call.WithDataAbiValues(candidate.Call.DataAbiValues)
+
+							corpusBefore, testResultsBefore := f.fuzzer.corpus.CallSequenceEntryCount()
+							rejectsBefore := f.fuzzer.metrics.AssumeRejects().Uint64()
+							valid, err := event.Worker.testShrunkenCallSequence(
+								calls.CallSequence{candidate},
+								ShrinkCallSequenceRequest{
+									VerifierFunction: func(*FuzzerWorker, calls.CallSequence) (bool, error) {
+										verifierCalls++
+										return true, nil
+									},
+								},
+							)
+							if err != nil {
+								return err
+							}
+							corpusAfter, testResultsAfter := f.fuzzer.corpus.CallSequenceEntryCount()
+
+							assert.False(f.t, valid)
+							assert.Equal(f.t, corpusBefore, corpusAfter)
+							assert.Equal(f.t, testResultsBefore, testResultsAfter)
+							assert.Equal(f.t, rejectsBefore, f.fuzzer.metrics.AssumeRejects().Uint64())
+							f.fuzzer.Stop()
+							return nil
+						},
+					)
+					return nil
+				})
+
+				err := f.fuzzer.Start()
+				assert.NoError(f.t, err)
+				assert.True(f.t, shrinkTestRan)
+				assert.Zero(f.t, verifierCalls)
+				assertFailedTestsExpected(f, false)
+			},
+		})
+	})
 }
 
 // TestAssertCheatCodes runs tests to ensure that vm extensions ("cheat codes") that perform assertions are working as intended.

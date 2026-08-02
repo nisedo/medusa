@@ -7,9 +7,13 @@ import (
 
 	"github.com/crytic/medusa-geth/accounts/abi"
 	"github.com/crytic/medusa-geth/common"
+	"github.com/crytic/medusa-geth/core"
 	"github.com/crytic/medusa-geth/core/vm"
 	"github.com/crytic/medusa/logging"
 )
+
+// assumeMagicReturnData is the raw revert data used by Foundry to signal that a fuzz input should be rejected.
+const assumeMagicReturnData = "FOUNDRY::ASSUME"
 
 // CheatCodeContract defines a struct which represents a pre-compiled contract with various methods that is
 // meant to act as a contract.
@@ -121,6 +125,16 @@ func cheatCodeAssertionPanic() *cheatCodeRawReturnData {
 		ReturnData: append(panicAbi.ID, encoded...),
 		Err:        vm.ErrExecutionReverted,
 	}
+}
+
+// IsAssumeResult returns whether an execution result represents a rejected vm.assume input.
+//
+// The comparison is intentionally exact: Foundry identifies a rejected input by the raw
+// FOUNDRY::ASSUME revert data rather than by an ABI-encoded Error(string).
+func IsAssumeResult(result *core.ExecutionResult) bool {
+	return result != nil &&
+		result.Err == vm.ErrExecutionReverted &&
+		string(result.ReturnData) == assumeMagicReturnData
 }
 
 // Name represents the name of the cheat code contract.

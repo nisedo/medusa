@@ -276,6 +276,18 @@ func (g *CallSequenceGenerator) PopSequenceElement() (*calls.CallSequenceElement
 	return element, nil
 }
 
+// RejectLastSequenceElement removes the most recently fetched element and rewinds the generator so that the same
+// sequence depth will receive a newly generated element on the next call to PopSequenceElement.
+func (g *CallSequenceGenerator) RejectLastSequenceElement() error {
+	if g.fetchIndex == 0 {
+		return fmt.Errorf("cannot reject a call sequence element before one has been fetched")
+	}
+
+	g.fetchIndex--
+	g.baseSequence[g.fetchIndex] = nil
+	return nil
+}
+
 // generateNewElement generates a new call sequence element which targets a method in a contract
 // deployed to the CallSequenceGenerator's parent FuzzerWorker chain, with fuzzed call data.
 // Returns the call sequence element, or an error if one was encountered.

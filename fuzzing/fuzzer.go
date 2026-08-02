@@ -1230,9 +1230,12 @@ func (f *Fuzzer) Start() error {
 	}
 
 	// Generate the revert metrics artifacts
-	err = f.revertReporter.BuildArtifacts()
-	if err != nil {
-		f.logger.Error("Failed to write reversion metrics to disk", err)
+	revertArtifactsErr := f.revertReporter.BuildArtifacts()
+	if revertArtifactsErr != nil {
+		f.logger.Error("Failed to write reversion metrics to disk", revertArtifactsErr)
+		if err == nil {
+			err = revertArtifactsErr
+		}
 	}
 
 	// Return any encountered error.
