@@ -91,6 +91,10 @@ type TestChain struct {
 	// router is used for transaction execution when constructing blocks.
 	transactionTracerRouter *TestChainTracerRouter
 
+	// deploymentsTracer tracks contract creation and destruction metadata. It
+	// is retained here so vm.snapshot can restore that metadata with StateDB.
+	deploymentsTracer *testChainDeploymentsTracer
+
 	// Events defines the event system for the TestChain.
 	Events TestChainEvents
 
@@ -196,6 +200,7 @@ func newTestChainWithStateFactory(
 		if err != nil {
 			return nil, err
 		}
+		vmConfigExtensions.CallFrameResultOverride = cheatTracer.overrideCallFrameResult
 		for _, cheatContract := range cheatContracts {
 			genesisDefinition.Alloc[cheatContract.address] = gethTypes.Account{
 				Balance: big.NewInt(0),
@@ -246,7 +251,8 @@ func newTestChainWithStateFactory(
 	}
 
 	// Add our internal tracers to this chain.
-	chain.AddTracer(newTestChainDeploymentsTracer().NativeTracer(), true, false)
+	chain.deploymentsTracer = newTestChainDeploymentsTracer()
+	chain.AddTracer(chain.deploymentsTracer.NativeTracer(), true, false)
 	if testChainConfig.CheatCodeConfig.CheatCodesEnabled {
 		chain.AddTracer(cheatTracer.NativeTracer(), true, true)
 		cheatTracer.bindToChain(chain)
