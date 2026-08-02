@@ -43,6 +43,7 @@
 
 - [Cheatcodes](cheatcodes/cheatcodes_overview.md)
   - [assume](./cheatcodes/assume.md)
+  - [expectRevert](./cheatcodes/expect_revert.md)
   - [warp](./cheatcodes/warp.md)
   - [roll](./cheatcodes/roll.md)
   - [fee](./cheatcodes/fee.md)
@@ -57,6 +58,7 @@
   - [snapshot](./cheatcodes/snapshot.md)
   - [getNonce](./cheatcodes/get_nonce.md)
   - [setNonce](./cheatcodes/set_nonce.md)
+  - [getCode](./cheatcodes/get_code.md)
   - [coinbase](./cheatcodes/coinbase.md)
   - [prank](./cheatcodes/prank.md)
   - [startPrank](./cheatcodes/start_prank.md)
@@ -72,6 +74,7 @@
   - [parseUint](./cheatcodes/parse_uint.md)
   - [parseBool](./cheatcodes/parse_bool.md)
   - [parseAddress](./cheatcodes/parse_address.md)
+  - [assertions](./cheatcodes/assertions.md)
 - [Console Logging](./console_logging.md)
 
 [FAQ](./faq.md)

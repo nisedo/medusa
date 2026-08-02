@@ -28,6 +28,7 @@ contract TestContract {
         transferOwnership(newOwner);
         assert(owner == newOwner);
     }
+}
 ```
 
 ## Function Signature

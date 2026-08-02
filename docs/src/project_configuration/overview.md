@@ -1,15 +1,16 @@
 # Configuration Overview
 
 `medusa`'s project configuration provides extensive and granular control over the execution of the fuzzer. The project
-configuration is a `.json` file that is broken down into five core components.
+configuration is a `.json` file with four top-level sections: `fuzzing`, `compilation`, `slither`, and `logging`.
+Testing and chain settings are nested at `fuzzing.testing` and `fuzzing.chainConfig`.
 
-- [Fuzzing Configuration](./fuzzing_config.md): The fuzzing configuration dictates the parameters with which the fuzzer will execute.
-- [Testing Configuration](./testing_config.md): The testing configuration dictates how and what `medusa` should fuzz test.
-- [Chain Configuration](./chain_config.md): The chain configuration dictates how `medusa`'s underlying blockchain should be configured.
-- [Compilation Configuration](./compilation_config.md): The compilation configuration dictates how to compile the fuzzing target.
-- [Slither Configuration](./slither_config.md): The Slither configuration dictates whether Slither should be used in
+- [Fuzzing Configuration](./fuzzing_config.md): Settings under `fuzzing`.
+- [Testing Configuration](./testing_config.md): Test selection and failure settings under `fuzzing.testing`.
+- [Chain Configuration](./chain_config.md): EVM settings under `fuzzing.chainConfig`.
+- [Compilation Configuration](./compilation_config.md): Compilation settings under `compilation`.
+- [Slither Configuration](./slither_config.md): Settings under `slither` that control whether Slither should be used in
   `medusa` and whether the results from Slither should be cached.
-- [Logging Configuration](./logging_config.md): The logging configuration dictates when and where to log events.
+- [Logging Configuration](./logging_config.md): Logging settings under `logging`.
 
 To generate a project configuration file, run [`medusa init`](../cli/init.md).
 

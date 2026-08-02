@@ -57,15 +57,18 @@ When using `medusa` over command-line, it operates a project config similarly (s
 
 ```go
 // Initialize a default project config with using crytic-compile as a compilation platform, and set the target it should compile.
-projectConfig := config.GetDefaultProjectConfig("crytic-compile")
-err := projectConfig.Compilation.SetTarget("contract.sol")
+projectConfig, err := config.GetDefaultProjectConfig("crytic-compile")
+if err != nil {
+    return err
+}
+err = projectConfig.Compilation.SetTarget("contract.sol")
 if err != nil {
     return err
 }
 
 // You can edit any of the values as you please.
 projectConfig.Fuzzing.Workers = 20
-projectConfig.Fuzzing.DeploymentOrder = []string{"TestContract1", "TestContract2"}
+projectConfig.Fuzzing.TargetContracts = []string{"TestContract1", "TestContract2"}
 ```
 
 You may also instantiate the whole config in-line with all the fields you'd like, setting the underlying platform config yourself.
@@ -147,12 +150,17 @@ The `TestChain` maintains event emitters for the following events under `TestCha
 
 The `Fuzzer` maintains hooks for some of its functionality under `Fuzzer.Hooks.*`:
 
-- `NewValueGeneratorFunc`: This method is used to create a `ValueGenerator` for each `FuzzerWorker`. By default, this uses a `MutationalValueGenerator` constructed with the provided `ValueSet`. It can be replaced to provide a custom `ValueGenerator`.
+- `NewCallSequenceGeneratorConfigFunc`: Creates each worker's `CallSequenceGeneratorConfig`. Replace it to change
+  sequence-generation settings or supply a custom `ValueGenerator`.
 
-- `TestChainSetupFunc`: This method is used to set up a chain's initial state before fuzzing. By default, this method deploys all contracts compiled and marked for deployment in the `ProjectConfig` provided to the `Fuzzer`. It only deploys contracts if they have no constructor arguments. This can be replaced with your own method to do custom deployments.
+- `NewShrinkingValueMutatorFunc`: Creates the value mutator used while shrinking failing call sequences.
+
+- `ChainSetupFunc`: Sets up the base chain before fuzzing. The default function deploys the selected contracts and
+  reads constructor arguments from `Fuzzing.ConstructorArgs`. Contracts listed in `PredeployedContracts` cannot take
+  constructor arguments. Replace this hook to perform custom deployment and setup.
   - **Note**: We do not recommend replacing this for now, as the `Contract` definitions may not be known to the `Fuzzer`. Additionally, `SenderAddresses` and `DeployerAddress` are the only addresses funded at genesis. This will be updated at a later time.
 
-- `CallSequenceTestFuncs`: This is a list of functions which are called after each `FuzzerWorker` executed another call in its current `CallSequence`. It takes the `FuzzerWorker` and `CallSequence` as input, and is expected to return a list of `ShinkRequest`s if some interesting result was found and we wish for the `FuzzerWorker` to shrink the sequence. You can add a function here as part of custom post-call testing methodology to check if some property was violated, then request a shrunken sequence for it with arbitrary criteria to verify the shrunk sequence satisfies your requirements (e.g. violating the same property again).
+- `CallSequenceTestFuncs`: This is a list of functions which are called after each `FuzzerWorker` executed another call in its current `CallSequence`. It takes the `FuzzerWorker` and `CallSequence` as input, and is expected to return a list of `ShrinkCallSequenceRequest`s if some interesting result was found and we wish for the `FuzzerWorker` to shrink the sequence. You can add a function here as part of custom post-call testing methodology to check if some property was violated, then request a shrunken sequence for it with arbitrary criteria to verify the shrunk sequence satisfies your requirements (e.g. violating the same property again).
 
 ### Extending testing methodology
 

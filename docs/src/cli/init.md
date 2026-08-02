@@ -9,6 +9,8 @@ medusa init [platform] [flags]
 By default, the project configuration file will be named `medusa.json`. You can learn more about `medusa`'s project
 configuration [here](../project_configuration/overview.md) and also view an [example project configuration file](../static/medusa.json).
 
+If the target file exists, `init` asks `The file already exists. Overwrite? (y/n):` and stops unless you answer `y`.
+
 Invoking this command without a `platform` argument will result in `medusa` using `crytic-compile` as the default compilation platform.
 Currently, the only other supported platform is `solc`. If you are using a compilation platform such as Foundry or Hardhat,
 it is best to use `crytic-compile`.

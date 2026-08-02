@@ -40,6 +40,7 @@ contract TestContract {
         assert(ic.owner() == owner);
         assert(aic.owner() == owner);
     }
+}
 ```
 
 ## Function Signature

@@ -58,7 +58,7 @@ These properties cannot be fully validated by testing a single function in isola
 
 System-level invariants are tested using **property tests**. Property tests in Medusa are Solidity functions that:
 
-1. Are prefixed with `property_` (configurable via `testing.propertyTesting.testPrefixes`).
+1. Are prefixed with `property_` (configurable via `fuzzing.testing.propertyTesting.testPrefixes`).
 2. Accept **no input arguments**.
 3. Return a `bool` (`true` = passing, `false` = failing).
 

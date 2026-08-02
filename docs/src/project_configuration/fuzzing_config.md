@@ -83,7 +83,7 @@ The fuzzing configuration defines the parameters for the fuzzing campaign.
 - **Description**: The [coverage reports](./../testing/reporting.md) to generate after the fuzzing campaign has
   completed. The coverage reports are saved in the `coverage` directory within `crytic-export/` (by default) or
   `corpusDirectory` if configured.
-- **Default**: `["lcov", "html"]`
+- **Default**: `["html", "lcov"]`
 
 ### `coverageExclusions`
 

@@ -2,8 +2,8 @@
 
 ## Description
 
-The `setNonce` cheatcode will set the nonce of `account` to `nonce`. Note that the `nonce` must be strictly greater than
-the current nonce
+The `setNonce` cheatcode sets the nonce of `account` to `nonce`. Unlike Foundry, Medusa does not require the new nonce
+to exceed the current one.
 
 ## Example
 
@@ -11,7 +11,7 @@ the current nonce
 // Obtain our cheat code contract reference.
 IStdCheats cheats = IStdCheats(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
-// Set nonce and verify (assume nonce before `setNonce` was less than 7)
+// Set nonce and verify
 address acc = address(msg.sender);
 cheats.setNonce(acc, 7);
 assert(cheats.getNonce(acc) == 7);

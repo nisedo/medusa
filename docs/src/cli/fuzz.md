@@ -200,7 +200,9 @@ medusa fuzz --rpc-url https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY
 
 ### `--rpc-block`
 
-The `--rpc-block` flag sets the block number to use when fetching contracts over RPC in fork mode (equivalent to [`chainConfig.forkConfig.rpcBlock`](../project_configuration/chain_config.md#rpcblock)). Must be used together with `--rpc-url`.
+The `--rpc-block` flag sets the block number to use when fetching contracts over RPC in fork mode (equivalent to
+[`chainConfig.forkConfig.rpcBlock`](../project_configuration/chain_config.md#rpcblock)). It takes effect only when
+fork mode is enabled through `--rpc-url` or the project configuration. Used alone, it is accepted but has no effect.
 
 ```shell
 # Fork from a specific block

@@ -23,27 +23,28 @@ Medusa is a cross-platform smart contract fuzzer written in Go, built on go-ethe
 
 ### Lint & Format
 
-- `goimports -w .` - Format imports and code (groups stdlib, external, local)
+- `goimports -w .` - Format imports and code (groups standard-library and external imports)
 - `go fmt ./...` - Format Go code (required before commits)
 - `golangci-lint run --timeout 5m` - Run comprehensive lint checks (mirrors CI)
 - `dprint fmt` - Format markdown, YAML, and JSON files
+- `prettier --check '**.json' '**/*.md' '**/*.yml' '!(pkg)'` - Check the prose formats enforced by CI
 - `actionlint` - Lint GitHub Actions workflow files
 
 ### Run
 
-- `go run . --config path/to/config.yaml` - Compile and run the fuzzer
+- `go run . fuzz --config path/to/medusa.json` - Compile and run the fuzzer
 - `nix develop` - Enter the pinned Nix development shell with all dependencies
 
 ### Git Hooks
 
 - `prek install` - Install pre-commit hooks (run once after cloning)
-- `prek run` - Manually run all pre-commit checks (use within `nix develop` shell)
+- `prek run` - Manually run all pre-commit checks (the hook tools are available in `nix develop`)
 
 ## Architecture & Code Structure
 
 ### Module Responsibilities
 
-- **`cmd/`** - CLI entry point using Cobra framework. Defines `fuzz`, `init`, and `completion` commands.
+- **`cmd/`** - CLI entry point using Cobra. Defines `fuzz`, `init`, `corpus clean`, and `completion`.
 - **`fuzzing/`** - Core fuzzing orchestration including workers, corpus management, coverage tracking, value generation, and test case providers.
 - **`chain/`** - EVM test harness (TestChain) built on medusa-geth with state management and cheat code support (vm.\* functions).
 - **`compilation/`** - Smart contract compilation abstraction with platform adapters for solc and crytic-compile.
@@ -60,20 +61,20 @@ cmd/fuzz.go (Cobra Command)
   ↓
 fuzzing.NewFuzzer(ProjectConfig)
   ├─→ Compilation (compile contracts via crytic-compile/solc)
-  ├─→ FuzzerWorker pool (N parallel workers)
-  ├─→ TestChain per worker (isolated EVM instance)
   ├─→ Corpus (loads/saves coverage-increasing call sequences)
-  ├─→ Test Case Providers (Assertion, Property, Optimization)
-  └─→ Coverage Tracer (if enabled)
+  └─→ Test Case Providers (Assertion, Property, Optimization)
+
+Fuzzer.Start()
+  ├─→ Deploy target contracts once on a base TestChain (ChainSetupFunc)
+  └─→ Start N parallel workers; each clones the base chain into an isolated
+      TestChain and attaches a coverage tracer when coverage is enabled
 
 Worker Loop (per worker, in parallel):
-  1. Deploy contracts via ChainSetupFunc hook
-  2. Generate CallSequence (mutations from corpus)
-  3. Execute sequence on TestChain
-  4. Run CallSequenceTestFuncs (test case providers)
-  5. If test fails → shrink sequence → save to corpus
-  6. Update coverage maps
-  7. Reset chain state to base block → repeat
+  1. Generate a CallSequence (new or mutated from the corpus)
+  2. Execute each call on the worker's TestChain
+  3. After each call, update coverage/corpus and run CallSequenceTestFuncs
+  4. If a test fails, shrink the sequence and save the result to the corpus
+  5. Reset chain state to testingBaseBlockIndex and repeat
 ```
 
 ### Key Architectural Patterns
@@ -85,9 +86,11 @@ Worker Loop (per worker, in parallel):
 - `NewCallSequenceGeneratorConfigFunc` - Customize sequence generation strategy
 - `NewShrinkingValueMutatorFunc` - Customize shrinking heuristics
 - `ChainSetupFunc` - Customize deployment and initialization logic
-- `CallSequenceTestFuncs[]` - Register test functions to run after each sequence
+- `CallSequenceTestFuncs[]` - Register test functions to run after each call in a sequence
 
-**Coverage-Guided Fuzzing**: The corpus stores only call sequences that increase coverage. Sequences are mutated using weighted strategies (corpus head/tail, splice, interleave, new). A corpus pruner periodically removes redundant sequences to keep the corpus lean.
+**Coverage-Guided Fuzzing**: The corpus stores call sequences that increase coverage. The generator uses weighted
+head, tail, splice, and interleave strategies in mutated and unmodified forms. It generates wholly new sequences
+through the separate `NewSequenceProbability`. A corpus pruner periodically removes redundant sequences.
 
 **Worker-Based Parallelization**: Each `FuzzerWorker` has its own isolated `TestChain` instance with no shared state. Workers are periodically destroyed and recreated (`WorkerResetLimit`) to prevent memory bloat from geth's state accumulation.
 
@@ -101,11 +104,11 @@ Worker Loop (per worker, in parallel):
 
 - **`CallSequence`** - Array of `CallSequenceElement` representing a transaction sequence to execute on the test chain.
 - **`CallSequenceElement`** - Single call with target address, method, arguments, block delay, and gas limit.
-- **`TestCase` interface** - Represents a test with Status (NOT_STARTED, RUNNING, PASSED, FAILED), Name, CallSequence, and result Message.
-- **`Corpus`** - Persistent storage of coverage-increasing call sequences with pruning. Stored on disk in `corpus/` directory.
+- **`TestCase` interface** - Represents a test with Status (`NOT STARTED`, `RUNNING`, `PASSED`, `FAILED`), Name, CallSequence, and result Message.
+- **`Corpus`** - Storage of coverage-increasing call sequences with pruning. It persists to disk only when `corpusDirectory` is set.
 - **`CoverageMaps`** - Tracks branch coverage per contract (including jumps, returns, reverts, and contract entrance), used to identify coverage-increasing sequences.
 - **`FuzzerWorker`** - Single execution thread with its own TestChain, deployed contracts, and sequence generator.
-- **`ProjectConfig`** - Top-level configuration containing FuzzingConfig, CompilationConfig, LoggingConfig.
+- **`ProjectConfig`** - Top-level configuration containing FuzzingConfig, CompilationConfig, SlitherConfig, and LoggingConfig.
 - **`FuzzingConfig`** - Workers count, timeout, test limit, corpus directory, coverage settings, test case configurations.
 
 ### Test Case Providers
@@ -113,8 +116,8 @@ Worker Loop (per worker, in parallel):
 Three built-in test case providers run concurrently:
 
 1. **AssertionTestCaseProvider**: Monitors EVM-level panic conditions for each contract method (e.g., `assert()`, arithmetic underflow/overflow, divide by zero, array access violations). Which panic codes trigger test failures is configured via `PanicCodeConfig` in `FuzzingConfig.Testing.AssertionTesting`.
-2. **PropertyTestCaseProvider**: Calls property test functions (prefix-based naming, must be view functions returning bool). If a property returns false, the test fails.
-3. **OptimizationTestCaseProvider**: Tracks optimization targets (e.g., maximize gas usage) and shrinks sequences to find minimal paths to targets.
+2. **PropertyTestCaseProvider**: Calls prefix-named, no-argument functions that return `bool`. Calls run read-only; a `false` return or revert fails the test.
+3. **OptimizationTestCaseProvider**: Calls prefix-named, no-argument functions that return `int256`, maximizes the returned value, and shrinks the best sequence.
 
 ## Testing Guidelines
 
@@ -175,8 +178,9 @@ The following checks run automatically via pre-commit hooks (install with `prek 
 3. `golangci-lint run --timeout 5m` - Run linter
 4. `dprint check` - Verify markdown/YAML/JSON formatting
 5. `actionlint` - Lint GitHub Actions workflows
+6. `docs-check` - Run `python3 scripts/check_docs.py` to check docs against public code
 
 Manual checks before submitting PRs:
 
-6. `go test -v ./...` - Run all tests (too slow for pre-commit)
-7. Verify changes work on target platforms
+7. `go test -v ./...` - Run all tests (too slow for pre-commit)
+8. Verify changes work on target platforms

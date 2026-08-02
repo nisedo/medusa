@@ -25,20 +25,26 @@ LCOV reports are machine-readable and useful for integrating with other tools or
 
 ### Enabling Coverage Reports
 
-Enable coverage reporting by setting the `corpusDirectory` and `coverageReports` options in your configuration file:
+Coverage is enabled by default, and the default `coverageFormats` value generates both HTML and LCOV reports. These
+settings belong under `fuzzing`. Set `corpusDirectory` when you want reports and corpus entries under a stable project
+directory:
 
 ```json
 {
-  "corpusDirectory": "corpus",
-  "coverageReports": ["lcov", "html"]
+  "fuzzing": {
+    "coverageEnabled": true,
+    "coverageFormats": ["html", "lcov"],
+    "corpusDirectory": "corpus"
+  }
 }
 ```
 
-If a `corpusDirectory` is not provided, the report(s) will be saved at `crytic-export/coverage`.
+With this example, reports are written to `corpus/coverage`, and the coverage corpus persists between campaigns. When
+`corpusDirectory` is empty, reports go to `crytic-export/coverage`, and corpus entries remain in memory only.
 
 ### Viewing HTML Coverage Reports
 
-The HTML report is automatically generated at `corpus/coverage/coverage_report.html`. Open this file in any web browser to view your coverage.
+The example above generates `corpus/coverage/coverage_report.html`. Open it in a browser.
 
 ### Using LCOV Reports
 
