@@ -6,7 +6,10 @@ The following shells are supported:
 
 1. `bash`
 2. `zsh`
-3. `Powershell`
+3. `powershell`
+
+The shell name is case-sensitive. For example, use `medusa completion powershell`, not
+`medusa completion Powershell`.
 
 To understand how to run the autocompletion script for a given shell, run the following command:
 

@@ -11,6 +11,7 @@
     "corpusDirectory": "",
     "coverageEnabled": true,
     "coverageFormats": ["html", "lcov"],
+    "coverageExclusions": [],
     "revertReporterEnabled": false,
     "targetContracts": [],
     "predeployedContracts": {},
@@ -26,7 +27,7 @@
       "stopOnFailedContractMatching": false,
       "stopOnNoTests": true,
       "testAllContracts": false,
-      "testViewMethods": false,
+      "testViewMethods": true,
       "verbosity": 1,
       "assertionTesting": {
         "enabled": true,

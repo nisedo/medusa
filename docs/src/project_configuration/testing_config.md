@@ -1,6 +1,6 @@
 # Testing Configuration
 
-The testing configuration can be broken down into a few subcomponents:
+The testing configuration lives at `fuzzing.testing` in `medusa.json`. It has these subcomponents:
 
 - **High-level configuration**: Configures global testing parameters, regardless of the type of testing.
 - **Assertion testing configuration**: Configures what kind of EVM panics should be treated as a failing fuzz test.
@@ -88,6 +88,8 @@ contract MyContract {
 
 ## Assertion Testing Configuration
 
+These options live under `fuzzing.testing.assertionTesting`.
+
 ### `enabled`
 
 - **Type**: Boolean
@@ -163,6 +165,8 @@ contract MyContract {
 
 ## Property Testing Configuration
 
+These options live under `fuzzing.testing.propertyTesting`.
+
 ### `enabled`
 
 - **Type**: Boolean
@@ -178,6 +182,8 @@ contract MyContract {
 - **Default**: `[property_]`
 
 ## Optimization Testing Configuration
+
+These options live under `fuzzing.testing.optimizationTesting`.
 
 ### `enabled`
 
