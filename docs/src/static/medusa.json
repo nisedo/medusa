@@ -11,7 +11,7 @@
     "corpusDirectory": "",
     "coverageEnabled": true,
     "coverageFormats": ["html", "lcov"],
-    "coverageExclusions": [],
+    "coverageExclusions": ["lib/forge-std/**"],
     "revertReporterEnabled": false,
     "targetContracts": [],
     "predeployedContracts": {},

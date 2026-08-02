@@ -89,7 +89,13 @@ The fuzzing configuration defines the parameters for the fuzzing campaign.
 
 - **Type**: [String] (e.g. `["lib/**", "*.test.sol"]`)
 - **Description**: Glob patterns to exclude files from coverage reporting. Useful for excluding libraries, test files, or other contracts that should not be included in coverage metrics.
-- **Default**: `[]`
+- **Default**: `["lib/forge-std/**"]`
+
+  Forge Standard Library contains test helpers and cheatcode interfaces rather than the protocol code normally targeted
+  by a Medusa campaign. The default exclusion affects coverage reports only; it does not prevent Forge Standard Library
+  sources from compiling or its helpers from executing. Set `coverageExclusions` to `[]` when auditing Forge Standard
+  Library itself or when its executable helper code is part of the intended coverage target. An explicit non-empty list
+  replaces the default rather than extending it.
 
 ### `revertReporterEnabled`
 

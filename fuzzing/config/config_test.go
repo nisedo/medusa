@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"math/big"
+	"reflect"
 	"testing"
 )
 
@@ -90,6 +91,49 @@ func TestMaxAssumeRejectsDefaultsAndExplicitZero(t *testing.T) {
 				t.Fatalf(
 					"maxAssumeRejects = %d, expected %d",
 					projectConfig.Fuzzing.MaxAssumeRejects,
+					testCase.expected,
+				)
+			}
+		})
+	}
+}
+
+func TestCoverageExclusionsDefaultsAndExplicitEmpty(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "omitted value excludes forge standard library coverage",
+			input:    `{"fuzzing":{}}`,
+			expected: []string{"lib/forge-std/**"},
+		},
+		{
+			name:     "explicit empty list includes forge standard library coverage",
+			input:    `{"fuzzing":{"coverageExclusions":[]}}`,
+			expected: []string{},
+		},
+		{
+			name:     "explicit list replaces the default",
+			input:    `{"fuzzing":{"coverageExclusions":["lib/openzeppelin-contracts/**"]}}`,
+			expected: []string{"lib/openzeppelin-contracts/**"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectConfig, err := GetDefaultProjectConfig("crytic-compile")
+			if err != nil {
+				t.Fatalf("could not create the default project config: %v", err)
+			}
+			if err := json.Unmarshal([]byte(testCase.input), projectConfig); err != nil {
+				t.Fatalf("could not decode the project config: %v", err)
+			}
+			if !reflect.DeepEqual(projectConfig.Fuzzing.CoverageExclusions, testCase.expected) {
+				t.Fatalf(
+					"coverageExclusions = %v, expected %v",
+					projectConfig.Fuzzing.CoverageExclusions,
 					testCase.expected,
 				)
 			}
