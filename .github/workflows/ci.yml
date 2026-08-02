@@ -142,12 +142,12 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/go/bin/actionlint
-          key: actionlint-${{ runner.os }}
+          key: actionlint-v1.7.11-${{ runner.os }}
 
       - name: Actionlint
         run: |
           if [ ! -f ~/go/bin/actionlint ]; then
-            go install github.com/rhysd/actionlint/cmd/actionlint@latest
+            go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
           fi
           actionlint
 
