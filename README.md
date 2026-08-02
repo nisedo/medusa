@@ -31,19 +31,16 @@ mdbook serve
 
 ## Install
 
-Run the following command to install the latest version of `medusa`:
+Install the maintained `nisedo-dev` version from a local checkout:
 
 ```shell
-
-go install github.com/crytic/medusa@latest
+git clone --branch nisedo-dev --single-branch https://github.com/nisedo/medusa.git
+cd medusa
+go install .
 ```
 
 For more information on building from source, using package managers, or obtaining binaries for Windows and Linux,
 please refer to the [installation guide](./docs/src/getting_started/installation.md).
-
-## Contributing
-
-For information about how to contribute to this project, check out the [CONTRIBUTING](./CONTRIBUTING.md) guidelines.
 
 ## License
 
