@@ -92,6 +92,17 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		return nil, err
 	}
 
+	// Assume: Rejects the current fuzz input when the condition is false.
+	contract.addMethod(
+		"assume", abi.Arguments{{Type: typeBool}}, abi.Arguments{},
+		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
+			if !inputs[0].(bool) {
+				return nil, cheatCodeRevertData([]byte(assumeMagicReturnData))
+			}
+			return nil, nil
+		},
+	)
+
 	// Warp: Sets VM timestamp. Note that this _permanently_ updates the block timestamp for the remainder of the
 	// chain's lifecycle.
 	contract.addMethod(

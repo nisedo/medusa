@@ -46,6 +46,13 @@ The fuzzing configuration defines the parameters for the fuzzing campaign.
   properties. After every `callSequenceLength` function calls, the blockchain is reset for the next sequence of transactions.
 - **Default**: 100 calls/sequence
 
+### `maxAssumeRejects`
+
+- **Type**: Integer
+- **Description**: The maximum number of inputs that `vm.assume(false)` may reject while Medusa generates one call
+  sequence. The next rejection stops the campaign with an error. A value of `0` disables this limit.
+- **Default**: 65,536 rejected inputs
+
 ### `coverageEnabled`
 
 - **Type**: Boolean

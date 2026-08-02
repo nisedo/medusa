@@ -42,6 +42,7 @@
 # Appendices
 
 - [Cheatcodes](cheatcodes/cheatcodes_overview.md)
+  - [assume](./cheatcodes/assume.md)
   - [warp](./cheatcodes/warp.md)
   - [roll](./cheatcodes/roll.md)
   - [fee](./cheatcodes/fee.md)

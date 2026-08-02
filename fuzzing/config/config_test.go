@@ -58,3 +58,41 @@ func TestMarshalBalances(t *testing.T) {
 		}
 	}
 }
+
+func TestMaxAssumeRejectsDefaultsAndExplicitZero(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected uint64
+	}{
+		{
+			name:     "omitted value keeps the default",
+			input:    `{"fuzzing":{}}`,
+			expected: 65_536,
+		},
+		{
+			name:     "explicit zero disables the limit",
+			input:    `{"fuzzing":{"maxAssumeRejects":0}}`,
+			expected: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectConfig, err := GetDefaultProjectConfig("crytic-compile")
+			if err != nil {
+				t.Fatalf("could not create the default project config: %v", err)
+			}
+			if err := json.Unmarshal([]byte(testCase.input), projectConfig); err != nil {
+				t.Fatalf("could not decode the project config: %v", err)
+			}
+			if projectConfig.Fuzzing.MaxAssumeRejects != testCase.expected {
+				t.Fatalf(
+					"maxAssumeRejects = %d, expected %d",
+					projectConfig.Fuzzing.MaxAssumeRejects,
+					testCase.expected,
+				)
+			}
+		})
+	}
+}
