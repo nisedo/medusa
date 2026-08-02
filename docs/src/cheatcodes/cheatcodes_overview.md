@@ -12,6 +12,9 @@ by Foundry (see below for supported cheatcodes).
 
 ```solidity
 interface IStdCheats {
+    // Reject the current fuzz input unless the condition is true
+    function assume(bool condition) external;
+
     // Set block.timestamp
     function warp(uint256) external;
 

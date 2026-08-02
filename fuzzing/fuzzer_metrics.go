@@ -25,6 +25,9 @@ type fuzzerWorkerMetrics struct {
 	// callsTested is the amount of transactions/calls the fuzzer executed and ran tests against.
 	callsTested *big.Int
 
+	// assumeRejects is the amount of fuzz inputs rejected by vm.assume.
+	assumeRejects *big.Int
+
 	// revertMetricsChan is the channel for sending revert metrics updates to the revert reporter.
 	// Note that the channel can be nil here if revert metrics are not enabled
 	revertMetricsChan chan reverts.RevertMetricsUpdate
@@ -51,6 +54,7 @@ func newFuzzerMetrics(workerCount int, revertMetricsCh chan reverts.RevertMetric
 		metrics.workerMetrics[i].sequencesTested = big.NewInt(0)
 		metrics.workerMetrics[i].failedSequences = big.NewInt(0)
 		metrics.workerMetrics[i].callsTested = big.NewInt(0)
+		metrics.workerMetrics[i].assumeRejects = big.NewInt(0)
 		metrics.workerMetrics[i].workerStartupCount = big.NewInt(0)
 		metrics.workerMetrics[i].gasUsed = big.NewInt(0)
 		metrics.workerMetrics[i].revertMetricsChan = revertMetricsCh
@@ -84,6 +88,15 @@ func (m *FuzzerMetrics) CallsTested() *big.Int {
 		transactionsTested.Add(transactionsTested, workerMetrics.callsTested)
 	}
 	return transactionsTested
+}
+
+// AssumeRejects returns the number of fuzz inputs rejected by vm.assume across all workers.
+func (m *FuzzerMetrics) AssumeRejects() *big.Int {
+	assumeRejects := big.NewInt(0)
+	for _, workerMetrics := range m.workerMetrics {
+		assumeRejects.Add(assumeRejects, workerMetrics.assumeRejects)
+	}
+	return assumeRejects
 }
 
 func (m *FuzzerMetrics) GasUsed() *big.Int {

@@ -55,6 +55,10 @@ type FuzzingConfig struct {
 	// CallSequenceLength describes the maximum length a transaction sequence can be generated as.
 	CallSequenceLength int `json:"callSequenceLength"`
 
+	// MaxAssumeRejects describes the maximum number of vm.assume rejections allowed while generating one call
+	// sequence. The next rejection stops the campaign with an error. A zero value disables the limit.
+	MaxAssumeRejects uint64 `json:"maxAssumeRejects"`
+
 	// PruneFrequency determines how often, in minutes, the corpus should be pruned to remove unnecessary members.
 	// Setting PruneFrequency to 0 disables pruning.
 	// PruneFrequency only matters if CoverageEnabled is set to true; otherwise, no pruning will occur.
