@@ -157,7 +157,7 @@ jobs:
 
       - name: Prettier
         run: |
-          npm install -g prettier
+          npm install -g prettier@3.9.6
           prettier --check '**.json' '**/*.md' '**/*.yml' '!(pkg)'
 
       - name: Markdown link check
@@ -218,24 +218,26 @@ jobs:
 
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: 18.15
+          node-version: 22
+          cache: npm
+          cache-dependency-path: compilation/platforms/testdata/hardhat/basic_project/package-lock.json
 
-      - name: Install dependencies (parallel)
+      - name: Install pinned dependencies
         run: |
-          # Start Python tool installs in background
-          uv tool install solc-select &
-          UV_PID1=$!
-          uv tool install crytic-compile &
-          UV_PID2=$!
-          uv tool install slither-analyzer &
-          UV_PID3=$!
+          # Keep installs sequential so the first failed download stops the job.
+          uv tool install 'solc-select==1.2.0'
+          uv tool install 'crytic-compile==0.4.2'
+          uv tool install 'slither-analyzer==0.11.6'
 
-          # Install Node deps in parallel
-          npm install hardhat &
-          NPM_PID=$!
-
-          # Wait for all
-          wait $UV_PID1 $UV_PID2 $UV_PID3 $NPM_PID
+      - name: Verify toolchain
+        run: |
+          node --version
+          npm --version
+          uv tool list
+          command -v solc-select
+          solc-select versions
+          crytic-compile --version
+          slither --version
 
       - name: Cache solc
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -243,9 +245,10 @@ jobs:
           path: ~/.solc-select/artifacts
           key: solc-0.8.28-${{ runner.os }}
 
-      - name: Install solc
+      - name: Install and verify solc
         run: |
           solc-select use 0.8.28 --always-install
+          solc --version | grep -F 'Version: 0.8.28'
           # see DEFAULT_TEST_SOLC_VERSION in medusa
 
       - name: Test
