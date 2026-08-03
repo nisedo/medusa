@@ -11,6 +11,7 @@ import (
 	"github.com/crytic/medusa/utils"
 	"github.com/crytic/medusa/utils/testutils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testCryticGetCompiledSourceByBaseName checks if a given source file exists in a given compilation's map of sources.
@@ -234,19 +235,19 @@ func TestCryticDirectoryNoArgs(t *testing.T) {
 
 	// Execute our tests in the given test path
 	testutils.ExecuteInDirectory(t, contractDirectory, func() {
-		// Run npm install
-		err := exec.Command("npm", "install").Run()
-		assert.NoError(t, err)
+		// Install the exact dependencies recorded in package-lock.json.
+		out, err := exec.Command("npm", "ci", "--no-audit", "--no-fund").CombinedOutput()
+		require.NoErrorf(t, err, "npm ci failed:\n%s", string(out))
 
 		// Create our platform configuration and compile the project
 		config := NewCryticCompilationConfig(contractDirectory)
 		compilations, _, err := config.Compile()
 
 		// No failures
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Two compilation objects
-		assert.EqualValues(t, 2, len(compilations))
+		require.Len(t, compilations, 2)
 		// One source per compilation unit
 		assert.EqualValues(t, 1, len(compilations[0].SourcePathToArtifact))
 		assert.EqualValues(t, 1, len(compilations[1].SourcePathToArtifact))
