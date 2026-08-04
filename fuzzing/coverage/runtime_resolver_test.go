@@ -1,6 +1,7 @@
 package coverage
 
 import (
+	"encoding/binary"
 	"os"
 	"os/exec"
 	"testing"
@@ -72,8 +73,9 @@ func TestMetadataRuntimeUsesMetadataIdentity(t *testing.T) {
 		"solc": []byte{0x00, 0x08, 0x1c},
 	}, cbor.EncOptions{Sort: cbor.SortCanonical})
 	require.NoError(t, err)
-	template := append([]byte{0xaa, 0x00, 0x00, 0xbb}, metadata...)
-	runtimeBytecode := append([]byte{0xaa, 0x01, 0x02, 0xbb}, metadata...)
+	metadataSuffix := appendRuntimeMetadataFooter(metadata)
+	template := append([]byte{0xaa, 0x00, 0x00, 0xbb}, metadataSuffix...)
+	runtimeBytecode := append([]byte{0xaa, 0x01, 0x02, 0xbb}, metadataSuffix...)
 	compiledContract := &compilationTypes.CompiledContract{
 		RuntimeBytecode:                    template,
 		RuntimeBytecodeImmutableReferences: []compilationTypes.ImmutableReference{{Start: 1, Length: 2}},
@@ -164,6 +166,77 @@ func TestImmutableRuntimeResolverIsolatesAmbiguousMasks(t *testing.T) {
 	require.NotEqual(t, secondHash, resolvedHash)
 }
 
+func TestImmutableRuntimeResolverIsolatesDistinctOwnersOfOneDescriptor(t *testing.T) {
+	template := append([]byte{0x7f}, make([]byte, 32)...)
+	template = append(template, 0x50)
+	references := []compilationTypes.ImmutableReference{{Start: 1, Length: 32}}
+	first := &compilationTypes.CompiledContract{
+		RuntimeBytecode:                    template,
+		RuntimeBytecodeImmutableReferences: references,
+		SrcMapsRuntime:                     "0:1:0",
+	}
+	second := &compilationTypes.CompiledContract{
+		RuntimeBytecode:                    append([]byte(nil), template...),
+		RuntimeBytecodeImmutableReferences: references,
+		SrcMapsRuntime:                     "0:1:1",
+	}
+	firstDefinition := contracts.NewContract("Same", "A.sol", first, nil)
+	secondDefinition := contracts.NewContract("Same", "B.sol", second, nil)
+	runtimeBytecode := append([]byte(nil), template...)
+	runtimeBytecode[32] = 7
+
+	resolver, err := NewRuntimeBytecodeResolver(contracts.Contracts{firstDefinition, secondDefinition})
+	require.NoError(t, err)
+	reversedResolver, err := NewRuntimeBytecodeResolver(contracts.Contracts{secondDefinition, firstDefinition})
+	require.NoError(t, err)
+
+	expected := domainSeparatedBytecodeHash(ambiguousRuntimeCoverageIdentityDomain, runtimeBytecode)
+	canonical := immutableRuntimeCoverageMapHash(template, references)
+	require.NotEqual(t, canonical, expected)
+	require.Equal(t, expected, runtimeCoverageMapHash(runtimeBytecode, resolver))
+	require.Equal(t, expected, runtimeCoverageMapHash(runtimeBytecode, reversedResolver))
+}
+
+func TestImmutableRuntimeResolverCoalescesRepeatedOwner(t *testing.T) {
+	template := []byte{0xaa, 0x00, 0x00, 0xbb}
+	references := []compilationTypes.ImmutableReference{{Start: 1, Length: 2}}
+	compiledContract := &compilationTypes.CompiledContract{
+		RuntimeBytecode:                    template,
+		RuntimeBytecodeImmutableReferences: references,
+	}
+	definition := contracts.NewContract("Immutable", "Immutable.sol", compiledContract, nil)
+	resolver, err := NewRuntimeBytecodeResolver(contracts.Contracts{definition, definition})
+	require.NoError(t, err)
+
+	runtimeBytecode := []byte{0xaa, 0x01, 0x02, 0xbb}
+	require.Equal(t, immutableRuntimeCoverageMapHash(template, references), runtimeCoverageMapHash(runtimeBytecode, resolver))
+}
+
+func TestImmutableBytesCannotImpersonateRuntimeMetadata(t *testing.T) {
+	template := append([]byte{0x7f}, make([]byte, 32)...)
+	template = append(template, []byte{0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0xff, 0xff}...)
+	references := []compilationTypes.ImmutableReference{{Start: 1, Length: 32}}
+	compiledContract := &compilationTypes.CompiledContract{
+		RuntimeBytecode:                    template,
+		RuntimeBytecodeImmutableReferences: references,
+	}
+	resolver, err := NewRuntimeBytecodeResolver(contracts.Contracts{
+		contracts.NewContract("Immutable", "Immutable.sol", compiledContract, nil),
+	})
+	require.NoError(t, err)
+
+	runtimeBytecode := append([]byte(nil), template...)
+	fakeMetadataPrefix := []byte{0xa1, 0x65, 'b', 'z', 'z', 'r', '0', 0x58, 0x20}
+	copy(runtimeBytecode[1:33], append(fakeMetadataPrefix, make([]byte, 23)...))
+	_, hasMetadataIdentity := runtimeMetadataCoverageMapHash(runtimeBytecode)
+	require.False(t, hasMetadataIdentity)
+	require.Equal(
+		t,
+		immutableRuntimeCoverageMapHash(template, references),
+		runtimeCoverageMapHash(runtimeBytecode, resolver),
+	)
+}
+
 func TestImmutableRuntimeResolverRejectsMalformedReferences(t *testing.T) {
 	_, err := NewRuntimeBytecodeResolver(contracts.Contracts{
 		contracts.NewContract("Malformed", "Malformed.sol", &compilationTypes.CompiledContract{
@@ -184,7 +257,7 @@ func TestImmutableRuntimeResolverSkipsUnresolvedLibraryTemplate(t *testing.T) {
 		contracts.NewContract("Unlinked", "Unlinked.sol", compiledContract, nil),
 	})
 	require.NoError(t, err)
-	require.Nil(t, resolver)
+	require.NotNil(t, resolver)
 
 	_, err = getCompiledContractCoverageMapHash(compiledContract, false)
 	require.NoError(t, err)
@@ -214,6 +287,43 @@ func TestImmutableRuntimeResolverMatchesAfterLibraryLinking(t *testing.T) {
 	require.Equal(t, compiledHash, runtimeCoverageMapHash(deployedRuntime, resolver))
 }
 
+func TestImmutableRuntimeIdentityIncludesLinkedLibraryAddress(t *testing.T) {
+	const placeholder = "1234567890123456789012345678901234"
+	newLinkedContract := func(address string) *compilationTypes.CompiledContract {
+		contract := &compilationTypes.CompiledContract{
+			InitBytecode:                       []byte("aa__$" + placeholder + "$__0000bb"),
+			RuntimeBytecode:                    []byte("aa__$" + placeholder + "$__0000bb"),
+			RuntimeBytecodeImmutableReferences: []compilationTypes.ImmutableReference{{Start: 21, Length: 2}},
+			LibraryPlaceholders:                map[string]any{placeholder: "CoverageLibrary"},
+		}
+		contract.LinkBytecodes("LinkedImmutable", map[string]common.Address{
+			"CoverageLibrary": common.HexToAddress(address),
+		})
+		return contract
+	}
+	first := newLinkedContract("0x1234")
+	second := newLinkedContract("0x5678")
+	resolver, err := NewRuntimeBytecodeResolver(contracts.Contracts{
+		contracts.NewContract("First", "First.sol", first, nil),
+		contracts.NewContract("Second", "Second.sol", second, nil),
+	})
+	require.NoError(t, err)
+
+	firstRuntime := append([]byte(nil), first.RuntimeBytecode...)
+	firstRuntime[21] = 1
+	secondRuntime := append([]byte(nil), second.RuntimeBytecode...)
+	secondRuntime[21] = 1
+	firstHash := runtimeCoverageMapHash(firstRuntime, resolver)
+	secondHash := runtimeCoverageMapHash(secondRuntime, resolver)
+	require.NotEqual(t, firstHash, secondHash)
+	firstCompiledHash, err := getCompiledContractCoverageMapHash(first, false)
+	require.NoError(t, err)
+	secondCompiledHash, err := getCompiledContractCoverageMapHash(second, false)
+	require.NoError(t, err)
+	require.Equal(t, firstCompiledHash, firstHash)
+	require.Equal(t, secondCompiledHash, secondHash)
+}
+
 func TestImmutableIdentityCannotReuseOrdinaryPreimage(t *testing.T) {
 	template := []byte{0xaa, 0x00, 0x00, 0xbb}
 	references := []compilationTypes.ImmutableReference{{Start: 1, Length: 2}}
@@ -221,4 +331,11 @@ func TestImmutableIdentityCannotReuseOrdinaryPreimage(t *testing.T) {
 	ordinaryPreimage := immutableRuntimeCoverageMapPayload(template, references)
 	ordinaryHash := getContractCoverageMapHash(ordinaryPreimage, false)
 	require.NotEqual(t, immutableHash, ordinaryHash)
+}
+
+func appendRuntimeMetadataFooter(metadata []byte) []byte {
+	result := append([]byte(nil), metadata...)
+	var footer [2]byte
+	binary.BigEndian.PutUint16(footer[:], uint16(len(metadata)))
+	return append(result, footer[:]...)
 }

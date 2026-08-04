@@ -26,20 +26,30 @@ type immutableRuntimeDescriptor struct {
 	descriptor string
 }
 
+type runtimeCoverageOwner struct {
+	compilation      *compilationTypes.Compilation
+	compiledContract *compilationTypes.CompiledContract
+	sourcePath       string
+	contractName     string
+}
+
 // RuntimeBytecodeResolver associates deployed runtime code with a compiled immutable template. Candidates are grouped
 // by byte length, and each deployed geth code hash is resolved only once by CoverageTracer's existing cache.
 type RuntimeBytecodeResolver struct {
-	immutableCandidatesByLength map[int][]immutableRuntimeDescriptor
-	exactCompiledIdentities     map[string]map[string]common.Hash
+	immutableCandidatesByLength   map[int][]immutableRuntimeDescriptor
+	ambiguousImmutableDescriptors map[string]struct{}
+	exactCompiledIdentities       map[string]map[string]common.Hash
 }
 
 // NewRuntimeBytecodeResolver builds a read-only resolver from linked compilation definitions. One resolver can be
 // shared by all coverage tracers in a fuzzing campaign.
 func NewRuntimeBytecodeResolver(contractDefinitions contracts.Contracts) (*RuntimeBytecodeResolver, error) {
 	resolver := &RuntimeBytecodeResolver{
-		immutableCandidatesByLength: make(map[int][]immutableRuntimeDescriptor),
-		exactCompiledIdentities:     make(map[string]map[string]common.Hash),
+		immutableCandidatesByLength:   make(map[int][]immutableRuntimeDescriptor),
+		ambiguousImmutableDescriptors: make(map[string]struct{}),
+		exactCompiledIdentities:       make(map[string]map[string]common.Hash),
 	}
+	ownersByDescriptor := make(map[string]map[runtimeCoverageOwner]struct{})
 
 	// Build immutable candidates first. Ordinary exact identities matter only at byte lengths that can match one.
 	for _, definition := range contractDefinitions {
@@ -63,18 +73,31 @@ func NewRuntimeBytecodeResolver(contractDefinitions contracts.Contracts) (*Runti
 			return nil, fmt.Errorf("contract %q has invalid runtime immutable references: %w", definition.Name(), err)
 		}
 		identity := immutableRuntimeCoverageMapHash(contract.RuntimeBytecode, references)
+		descriptor := immutableRuntimeCoverageDescriptor(contract.RuntimeBytecode, references)
 		resolver.immutableCandidatesByLength[len(contract.RuntimeBytecode)] = append(
 			resolver.immutableCandidatesByLength[len(contract.RuntimeBytecode)],
 			immutableRuntimeDescriptor{
 				template:   slices.Clone(contract.RuntimeBytecode),
 				references: slices.Clone(references),
 				lookupHash: identity,
-				descriptor: immutableRuntimeCoverageDescriptor(contract.RuntimeBytecode, references),
+				descriptor: descriptor,
 			},
 		)
+		owner := runtimeCoverageOwner{
+			compilation:      definition.Compilation(),
+			compiledContract: contract,
+			sourcePath:       definition.SourcePath(),
+			contractName:     definition.Name(),
+		}
+		if ownersByDescriptor[descriptor] == nil {
+			ownersByDescriptor[descriptor] = make(map[runtimeCoverageOwner]struct{})
+		}
+		ownersByDescriptor[descriptor][owner] = struct{}{}
 	}
-	if len(resolver.immutableCandidatesByLength) == 0 {
-		return nil, nil
+	for descriptor, owners := range ownersByDescriptor {
+		if len(owners) > 1 {
+			resolver.ambiguousImmutableDescriptors[descriptor] = struct{}{}
+		}
 	}
 
 	// Index exact compiled templates at candidate lengths to detect ordinary contracts and distinct immutable masks
@@ -133,6 +156,9 @@ func (r *RuntimeBytecodeResolver) resolve(runtimeBytecode []byte) (common.Hash, 
 	identities := make(map[string]common.Hash)
 	for _, candidate := range candidates {
 		if compilationTypes.RuntimeBytecodeMatchesImmutableTemplate(candidate.template, runtimeBytecode, candidate.references) {
+			if _, ambiguous := r.ambiguousImmutableDescriptors[candidate.descriptor]; ambiguous {
+				return domainSeparatedBytecodeHash(ambiguousRuntimeCoverageIdentityDomain, runtimeBytecode), true
+			}
 			identities[candidate.descriptor] = candidate.lookupHash
 		}
 	}
