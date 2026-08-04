@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,11 +23,14 @@ import (
 	compilationTypes "github.com/crytic/medusa/compilation/types"
 	"github.com/crytic/medusa/fuzzing/contracts"
 	"github.com/crytic/medusa/logging"
+	"github.com/crytic/medusa/utils/testutils"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMetadataFreeImmutableRuntimeCoverage(t *testing.T) {
-	target := "../testdata/contracts/coverage/immutable_runtime.sol"
+	contractPath := testutils.CopyToTestDirectory(t, "../testdata/contracts/coverage/immutable_runtime.sol")
+	t.Chdir(filepath.Dir(contractPath))
+	target := filepath.Base(contractPath)
 
 	compiler := platforms.NewCryticCompilationConfig(target)
 	compiler.ExportDirectory = t.TempDir()
