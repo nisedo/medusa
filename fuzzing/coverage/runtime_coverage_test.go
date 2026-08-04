@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,8 +26,7 @@ import (
 )
 
 func TestMetadataFreeImmutableRuntimeCoverage(t *testing.T) {
-	target, err := filepath.Abs("../testdata/contracts/coverage/immutable_runtime.sol")
-	require.NoError(t, err)
+	target := "../testdata/contracts/coverage/immutable_runtime.sol"
 
 	compiler := platforms.NewCryticCompilationConfig(target)
 	compiler.ExportDirectory = t.TempDir()
