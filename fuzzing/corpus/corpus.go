@@ -34,6 +34,9 @@ type Corpus struct {
 	// coverageMaps describes the total code coverage known to be achieved across all corpus call sequences.
 	coverageMaps *coverage.CoverageMaps
 
+	// runtimeBytecodeResolver is shared by corpus initialization and pruning tracers.
+	runtimeBytecodeResolver *coverage.RuntimeBytecodeResolver
+
 	// callSequenceFiles represents a corpus directory with files that should be used for mutations.
 	callSequenceFiles *corpusDirectory[calls.CallSequence]
 
@@ -191,7 +194,14 @@ func (c *Corpus) Initialize(baseTestChain *chain.TestChain, contractDefinitions 
 
 	// Create a coverage tracer to track coverage across all blocks.
 	c.coverageMaps = coverage.NewCoverageMaps()
-	coverageTracer := coverage.NewCoverageTracer()
+	if c.runtimeBytecodeResolver == nil {
+		var err error
+		c.runtimeBytecodeResolver, err = coverage.NewRuntimeBytecodeResolver(contractDefinitions)
+		if err != nil {
+			return fmt.Errorf("could not create immutable-aware coverage resolver: %w", err)
+		}
+	}
+	coverageTracer := coverage.NewCoverageTracerWithRuntimeBytecodeResolver(c.runtimeBytecodeResolver)
 
 	// Create our structure and event listeners to track deployed contracts
 	deployedContracts := make(map[common.Address]*contracts.Contract, 0)
@@ -268,6 +278,11 @@ func (c *Corpus) Initialize(baseTestChain *chain.TestChain, contractDefinitions 
 // CoverageMaps exposes coverage details for all call sequences known to the corpus.
 func (c *Corpus) CoverageMaps() *coverage.CoverageMaps {
 	return c.coverageMaps
+}
+
+// SetRuntimeBytecodeResolver sets the read-only runtime resolver shared by corpus coverage tracers.
+func (c *Corpus) SetRuntimeBytecodeResolver(resolver *coverage.RuntimeBytecodeResolver) {
+	c.runtimeBytecodeResolver = resolver
 }
 
 // CallSequenceEntryCount returns the total number of call sequences that increased coverage and also any test results

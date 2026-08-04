@@ -7,11 +7,19 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/crytic/medusa-geth/accounts/abi"
 	"github.com/crytic/medusa-geth/common"
 )
+
+// ImmutableReference describes a byte range in deployed runtime bytecode that the Solidity compiler patches with a
+// constructor-set immutable value. Start and Length are byte offsets, not hexadecimal string offsets.
+type ImmutableReference struct {
+	Start  uint64 `json:"start"`
+	Length uint64 `json:"length"`
+}
 
 // CompiledContract represents a single contract unit from a smart contract compilation.
 type CompiledContract struct {
@@ -26,6 +34,10 @@ type CompiledContract struct {
 	// RuntimeBytecode represents the rudimentary bytecode to be expected once the contract has been successfully
 	// deployed. This may differ at runtime based on constructor arguments, immutables, linked libraries, etc.
 	RuntimeBytecode []byte
+
+	// RuntimeBytecodeImmutableReferences lists the compiler-declared ranges in RuntimeBytecode that deployment patches
+	// with immutable values. The ranges are sorted, non-overlapping, and contain zero placeholders in compiler output.
+	RuntimeBytecodeImmutableReferences []ImmutableReference
 
 	// SrcMapsInit describes the source mappings to associate source file and bytecode segments in InitBytecode.
 	SrcMapsInit string
@@ -90,10 +102,123 @@ func (c *CompiledContract) IsMatch(initBytecode []byte, runtimeBytecode []byte) 
 		if bytes.Equal(runtimeBytecode, c.RuntimeBytecode) {
 			return true
 		}
+
+		// When metadata is unavailable, constructor-set immutables are the only compiler-declared runtime ranges that
+		// may differ. Reject malformed references and compare every byte outside those ranges exactly.
+		if len(c.LibraryPlaceholders) == 0 && len(c.RuntimeBytecodeImmutableReferences) > 0 {
+			references, err := ValidateImmutableReferences(c.RuntimeBytecode, c.RuntimeBytecodeImmutableReferences)
+			if err == nil && RuntimeBytecodeMatchesImmutableTemplate(c.RuntimeBytecode, runtimeBytecode, references) {
+				return true
+			}
+		}
 	}
 
 	// Otherwise return our failed match status.
 	return false
+}
+
+// NormalizeImmutableReferences sorts immutable references and validates their bounds and overlap against bytecodeLength.
+func NormalizeImmutableReferences(references []ImmutableReference, bytecodeLength int) ([]ImmutableReference, error) {
+	if bytecodeLength < 0 {
+		return nil, fmt.Errorf("runtime bytecode length cannot be negative")
+	}
+	if len(references) == 0 {
+		return nil, nil
+	}
+
+	normalized := slices.Clone(references)
+	sort.Slice(normalized, func(i, j int) bool {
+		if normalized[i].Start == normalized[j].Start {
+			return normalized[i].Length < normalized[j].Length
+		}
+		return normalized[i].Start < normalized[j].Start
+	})
+
+	codeLength := uint64(bytecodeLength)
+	for i, reference := range normalized {
+		if reference.Length == 0 {
+			return nil, fmt.Errorf("immutable reference at byte %d has zero length", reference.Start)
+		}
+		if reference.Start >= codeLength || reference.Length > codeLength-reference.Start {
+			return nil, fmt.Errorf(
+				"immutable reference at byte %d with length %d is outside runtime bytecode length %d",
+				reference.Start,
+				reference.Length,
+				bytecodeLength,
+			)
+		}
+		if i > 0 {
+			previous := normalized[i-1]
+			previousEnd := previous.Start + previous.Length
+			if reference.Start < previousEnd {
+				return nil, fmt.Errorf(
+					"immutable references [%d,%d) and [%d,%d) overlap",
+					previous.Start,
+					previousEnd,
+					reference.Start,
+					reference.Start+reference.Length,
+				)
+			}
+		}
+	}
+
+	return normalized, nil
+}
+
+// ValidateImmutableReferences validates compiler-declared immutable ranges and their zero-filled placeholders.
+func ValidateImmutableReferences(bytecode []byte, references []ImmutableReference) ([]ImmutableReference, error) {
+	normalized, err := NormalizeImmutableReferences(references, len(bytecode))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, reference := range normalized {
+		start := int(reference.Start)
+		end := start + int(reference.Length)
+		for offset, value := range bytecode[start:end] {
+			if value != 0 {
+				return nil, fmt.Errorf(
+					"immutable reference [%d,%d) contains nonzero compiler placeholder at byte %d",
+					reference.Start,
+					reference.Start+reference.Length,
+					start+offset,
+				)
+			}
+		}
+	}
+
+	return normalized, nil
+}
+
+// RuntimeBytecodeMatchesImmutableTemplate reports whether runtimeBytecode differs from template only within the
+// supplied immutable ranges. Malformed or unsorted ranges never match.
+func RuntimeBytecodeMatchesImmutableTemplate(template []byte, runtimeBytecode []byte, references []ImmutableReference) bool {
+	if len(template) != len(runtimeBytecode) || len(references) == 0 {
+		return false
+	}
+
+	codeLength := uint64(len(template))
+	previousEnd := uint64(0)
+	for _, reference := range references {
+		if reference.Length == 0 || reference.Start < previousEnd || reference.Start >= codeLength ||
+			reference.Length > codeLength-reference.Start {
+			return false
+		}
+
+		start := int(reference.Start)
+		end := start + int(reference.Length)
+		if !bytes.Equal(template[int(previousEnd):start], runtimeBytecode[int(previousEnd):start]) {
+			return false
+		}
+		for _, placeholderByte := range template[start:end] {
+			if placeholderByte != 0 {
+				return false
+			}
+		}
+		previousEnd = uint64(end)
+	}
+
+	return bytes.Equal(template[int(previousEnd):], runtimeBytecode[int(previousEnd):])
 }
 
 // ParseABIFromInterface parses a generic object into an abi.ABI and returns it, or an error if one occurs.

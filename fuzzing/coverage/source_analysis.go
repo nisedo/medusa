@@ -252,11 +252,11 @@ func GetUniquePCsCount(compilations []types.Compilation, coverageMaps *CoverageM
 					continue
 				}
 				// Obtain coverage map data for this contract.
-				initCoverageMapData, err := coverageMaps.GetContractCoverageMap(contract.InitBytecode, true)
+				initCoverageMapData, err := coverageMaps.GetCompiledContractCoverageMap(&contract, true)
 				if err != nil {
 					return 0, fmt.Errorf("could not perform source code analysis due to error fetching init coverage map data: %v", err)
 				}
-				runtimeCoverageMapData, err := coverageMaps.GetContractCoverageMap(contract.RuntimeBytecode, false)
+				runtimeCoverageMapData, err := coverageMaps.GetCompiledContractCoverageMap(&contract, false)
 				if err != nil {
 					return 0, fmt.Errorf("could not perform source code analysis due to error fetching runtime coverage map data: %v", err)
 				}
@@ -345,11 +345,11 @@ func AnalyzeSourceCoverage(compilations []types.Compilation, coverageMaps *Cover
 					continue
 				}
 				// Obtain coverage map data for this contract.
-				initCoverageMapData, err := coverageMaps.GetContractCoverageMap(contract.InitBytecode, true)
+				initCoverageMapData, err := coverageMaps.GetCompiledContractCoverageMap(&contract, true)
 				if err != nil {
 					return nil, fmt.Errorf("could not perform source code analysis due to error fetching init coverage map data: %v", err)
 				}
-				runtimeCoverageMapData, err := coverageMaps.GetContractCoverageMap(contract.RuntimeBytecode, false)
+				runtimeCoverageMapData, err := coverageMaps.GetCompiledContractCoverageMap(&contract, false)
 				if err != nil {
 					return nil, fmt.Errorf("could not perform source code analysis due to error fetching runtime coverage map data: %v", err)
 				}

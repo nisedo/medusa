@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/crytic/medusa-geth/common"
-	"github.com/crytic/medusa-geth/crypto"
 	compilationTypes "github.com/crytic/medusa/compilation/types"
 )
 
@@ -93,18 +92,55 @@ var useFullBytecode func() bool = sync.OnceValue(func() bool {
 func getContractCoverageMapHash(bytecode []byte, init bool) common.Hash {
 	// If available, the metadata code hash should be unique and reliable to use above all (for runtime bytecode).
 	if !init && !useFullBytecode() {
-		metadata := compilationTypes.ExtractContractMetadata(bytecode)
-		if metadata != nil {
-			metadataHash := metadata.ExtractBytecodeHash()
-			if metadataHash != nil {
-				return common.BytesToHash(metadataHash)
-			}
+		if metadataHash, ok := runtimeMetadataCoverageMapHash(bytecode); ok {
+			return metadataHash
 		}
 	}
 
 	// Otherwise, we use the hash of the bytecode after attempting to strip metadata (and constructor args).
 	strippedBytecode := compilationTypes.RemoveContractMetadata(bytecode)
-	return crypto.Keccak256Hash(strippedBytecode)
+	domain := ordinaryRuntimeCoverageIdentityDomain
+	if init {
+		domain = initCoverageIdentityDomain
+	}
+	return domainSeparatedBytecodeHash(domain, strippedBytecode)
+}
+
+func runtimeMetadataCoverageMapHash(bytecode []byte) (common.Hash, bool) {
+	metadata := compilationTypes.ExtractContractMetadata(bytecode)
+	if metadata == nil {
+		return common.Hash{}, false
+	}
+	metadataHash := metadata.ExtractBytecodeHash()
+	if metadataHash == nil {
+		return common.Hash{}, false
+	}
+	return domainSeparatedBytecodeHash(metadataRuntimeCoverageIdentityDomain, metadataHash), true
+}
+
+func getCompiledContractCoverageMapHash(contract *compilationTypes.CompiledContract, init bool) (common.Hash, error) {
+	bytecode := contract.RuntimeBytecode
+	if init {
+		bytecode = contract.InitBytecode
+	}
+
+	if !init && len(contract.LibraryPlaceholders) == 0 && len(contract.RuntimeBytecodeImmutableReferences) > 0 {
+		if !useFullBytecode() {
+			if metadataHash, ok := runtimeMetadataCoverageMapHash(bytecode); ok {
+				return metadataHash, nil
+			}
+		}
+		references, err := compilationTypes.ValidateImmutableReferences(
+			bytecode,
+			contract.RuntimeBytecodeImmutableReferences,
+		)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		return immutableRuntimeCoverageMapHash(bytecode, references), nil
+	}
+
+	return getContractCoverageMapHash(bytecode, init), nil
 }
 
 // GetContractCoverageMap obtains a total coverage map representing coverage for the provided bytecode.
@@ -113,6 +149,23 @@ func getContractCoverageMapHash(bytecode []byte, init bool) common.Hash {
 func (cm *CoverageMaps) GetContractCoverageMap(bytecode []byte, init bool) (*ContractCoverageMap, error) {
 	// Obtain the lookup hash
 	hash := getContractCoverageMapHash(bytecode, init)
+	return cm.getContractCoverageMapByHash(hash)
+}
+
+// GetCompiledContractCoverageMap obtains coverage for a compiled contract using its compiler-declared immutable ranges
+// when runtime metadata cannot provide an identity. Init, metadata, and ordinary runtime precedence stays unchanged.
+func (cm *CoverageMaps) GetCompiledContractCoverageMap(
+	contract *compilationTypes.CompiledContract,
+	init bool,
+) (*ContractCoverageMap, error) {
+	hash, err := getCompiledContractCoverageMapHash(contract, init)
+	if err != nil {
+		return nil, err
+	}
+	return cm.getContractCoverageMapByHash(hash)
+}
+
+func (cm *CoverageMaps) getContractCoverageMapByHash(hash common.Hash) (*ContractCoverageMap, error) {
 
 	// Acquire our thread lock and defer our unlocking for when we exit this method
 	cm.updateLock.Lock()

@@ -44,6 +44,23 @@ func TestComputeArtifactHash_DifferentBytecode(t *testing.T) {
 	assert.NotEqual(t, hash1, hash2, "different bytecode should produce different hash")
 }
 
+func TestComputeArtifactHash_DifferentImmutableReferences(t *testing.T) {
+	t.Parallel()
+
+	compilations1 := createTestCompilations()
+	compilations2 := createTestCompilations()
+	contract := compilations2[0].SourcePathToArtifact["TestContract.sol"].Contracts["TestContract"]
+	contract.RuntimeBytecode[1] = 0
+	contract.RuntimeBytecodeImmutableReferences = []types.ImmutableReference{{Start: 1, Length: 1}}
+	compilations2[0].SourcePathToArtifact["TestContract.sol"].Contracts["TestContract"] = contract
+
+	contractWithoutReferences := compilations1[0].SourcePathToArtifact["TestContract.sol"].Contracts["TestContract"]
+	contractWithoutReferences.RuntimeBytecode[1] = 0
+	compilations1[0].SourcePathToArtifact["TestContract.sol"].Contracts["TestContract"] = contractWithoutReferences
+
+	require.NotEqual(t, ComputeArtifactHash(compilations1), ComputeArtifactHash(compilations2))
+}
+
 func TestComputeArtifactHash_OrderIndependent(t *testing.T) {
 	t.Parallel()
 
@@ -86,6 +103,33 @@ func TestComputeArtifactHash_OrderIndependent(t *testing.T) {
 	hash2 := ComputeArtifactHash([]types.Compilation{compilation2})
 
 	assert.Equal(t, hash1, hash2, "hash should be independent of contract order in map")
+}
+
+func TestComputeArtifactHash_PathAndCompilationOrderIndependent(t *testing.T) {
+	t.Parallel()
+
+	first := types.Compilation{SourcePathToArtifact: map[string]types.SourceArtifact{
+		"/tmp/project/Alpha.sol": {Contracts: map[string]types.CompiledContract{
+			"Alpha": {InitBytecode: []byte{0x01}, RuntimeBytecode: []byte{0x02}},
+		}},
+	}}
+	second := types.Compilation{SourcePathToArtifact: map[string]types.SourceArtifact{
+		"C:\\project\\Beta.sol": {Contracts: map[string]types.CompiledContract{
+			"Beta": {InitBytecode: []byte{0x03}, RuntimeBytecode: []byte{0x04}},
+		}},
+	}}
+	movedFirst := types.Compilation{SourcePathToArtifact: map[string]types.SourceArtifact{
+		"D:\\moved\\Alpha.sol": first.SourcePathToArtifact["/tmp/project/Alpha.sol"],
+	}}
+	movedSecond := types.Compilation{SourcePathToArtifact: map[string]types.SourceArtifact{
+		"/opt/moved/Beta.sol": second.SourcePathToArtifact["C:\\project\\Beta.sol"],
+	}}
+
+	require.Equal(
+		t,
+		ComputeArtifactHash([]types.Compilation{first, second}),
+		ComputeArtifactHash([]types.Compilation{movedSecond, movedFirst}),
+	)
 }
 
 func TestLoadArtifactHashCache_NonExistent(t *testing.T) {

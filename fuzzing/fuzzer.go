@@ -119,6 +119,9 @@ type Fuzzer struct {
 	// deployedLibraries tracks library names to their deployed addresses from the base test chain.
 	// This is used to link contract bytecode before coverage analysis.
 	deployedLibraries map[string]common.Address
+
+	// coverageRuntimeBytecodeResolver is built after library linking and shared by every campaign tracer.
+	coverageRuntimeBytecodeResolver *coverage.RuntimeBytecodeResolver
 }
 
 // Amount of time between "total PCs hit" log messages. This message is only output when debug logging is enabled.
@@ -879,6 +882,41 @@ func (f *Fuzzer) deployContract(testChain *chain.TestChain, contract *fuzzerType
 	return deployedAddr, nil
 }
 
+// linkKnownContractBytecodes links every compiled definition whose library dependencies were deployed during setup.
+// Updating both the definition and its compilation copy keeps tracing and source analysis on the same bytecode.
+func (f *Fuzzer) linkKnownContractBytecodes() {
+	for _, definition := range f.contractDefinitions {
+		contract := definition.CompiledContract()
+		if len(contract.LibraryPlaceholders) == 0 {
+			continue
+		}
+
+		allLibrariesKnown := true
+		for _, libraryNameValue := range contract.LibraryPlaceholders {
+			libraryName, ok := libraryNameValue.(string)
+			if !ok || libraryName == "" {
+				allLibrariesKnown = false
+				break
+			}
+			if _, ok := f.deployedLibraries[libraryName]; !ok {
+				allLibrariesKnown = false
+				break
+			}
+		}
+		if !allLibrariesKnown {
+			continue
+		}
+
+		contract.LinkBytecodes(definition.Name(), f.deployedLibraries)
+		if compilation := definition.Compilation(); compilation != nil {
+			if source, ok := compilation.SourcePathToArtifact[definition.SourcePath()]; ok && source.Contracts != nil {
+				source.Contracts[definition.Name()] = *contract
+				compilation.SourcePathToArtifact[definition.SourcePath()] = source
+			}
+		}
+	}
+}
+
 // defaultCallSequenceGeneratorConfigFunc is a NewCallSequenceGeneratorConfigFunc which creates a
 // CallSequenceGeneratorConfig with a default configuration. Returns the config or an error, if one occurs.
 func defaultCallSequenceGeneratorConfigFunc(fuzzer *Fuzzer, valueSet *valuegeneration.ValueSet, randomProvider *rand.Rand) (*CallSequenceGeneratorConfig, error) {
@@ -1100,6 +1138,11 @@ func (f *Fuzzer) Start() error {
 		return err
 	}
 	f.logger.Info("Finished setting up test chain")
+	f.linkKnownContractBytecodes()
+	f.coverageRuntimeBytecodeResolver, err = coverage.NewRuntimeBytecodeResolver(f.contractDefinitions)
+	if err != nil {
+		return fmt.Errorf("could not build immutable-aware runtime coverage resolver: %w", err)
+	}
 
 	// Create and initialize the corpus
 	f.logger.Info("Creating corpus...")
@@ -1108,6 +1151,7 @@ func (f *Fuzzer) Start() error {
 		f.logger.Error("Failed to create the corpus", err)
 		return err
 	}
+	f.corpus.SetRuntimeBytecodeResolver(f.coverageRuntimeBytecodeResolver)
 	err = f.corpus.Initialize(baseTestChain, f.contractDefinitions)
 	if err != nil {
 		f.logger.Error("Failed to initialize the corpus", err)
@@ -1186,23 +1230,6 @@ func (f *Fuzzer) Start() error {
 		coverageReportDir := filepath.Join("crytic-export", "coverage")
 		if f.config.Fuzzing.CorpusDirectory != "" {
 			coverageReportDir = filepath.Join(f.config.Fuzzing.CorpusDirectory, "coverage")
-		}
-
-		// Link all contracts with library dependencies before coverage analysis.
-		// This ensures that contracts deployed indirectly (e.g., via Solidity's `new` keyword)
-		// have their bytecode properly linked for coverage tracking.
-		if len(f.deployedLibraries) > 0 {
-			for i := range f.compilations {
-				for sourcePath, sourceArtifact := range f.compilations[i].SourcePathToArtifact {
-					for contractName, contract := range sourceArtifact.Contracts {
-						if len(contract.LibraryPlaceholders) > 0 {
-							contract.LinkBytecodes(contractName, f.deployedLibraries)
-							sourceArtifact.Contracts[contractName] = contract
-						}
-					}
-					f.compilations[i].SourcePathToArtifact[sourcePath] = sourceArtifact
-				}
-			}
 		}
 
 		sourceAnalysis, err := coverage.AnalyzeSourceCoverage(f.compilations, f.corpus.CoverageMaps(), f.config.Fuzzing.CoverageExclusions, f.logger)
