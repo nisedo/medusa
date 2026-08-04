@@ -94,7 +94,8 @@ func (cp *CorpusPruner) Start(ctx context.Context, corpus *Corpus, baseTestChain
 
 	// Clone our chain, attaching a tracer.
 	clonedChain, err := baseTestChain.Clone(func(initializedChain *chain.TestChain) error {
-		initializedChain.AddTracer(coverage.NewCoverageTracer().NativeTracer(), true, false)
+		coverageTracer := coverage.NewCoverageTracerWithRuntimeBytecodeResolver(corpus.runtimeBytecodeResolver)
+		initializedChain.AddTracer(coverageTracer.NativeTracer(), true, false)
 		return nil
 	})
 	if err != nil {

@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"bytes"
 	"slices"
 	"strings"
 
@@ -14,16 +15,39 @@ type Contracts []*Contract
 // MatchBytecode takes init and/or runtime bytecode and attempts to match it to a contract definition in the
 // current list of contracts. It returns the contract definition if found. Otherwise, it returns nil.
 func (c Contracts) MatchBytecode(initBytecode []byte, runtimeBytecode []byte) *Contract {
-	// Loop through all our contract definitions to find a match.
-	for i := 0; i < len(c); i++ {
-		// If we have a match, register the deployed contract.
-		if c[i].CompiledContract().IsMatch(initBytecode, runtimeBytecode) {
-			return c[i]
+	// Exact init templates, after stripping appended constructor arguments by length, provide the strongest available
+	// deployment identity. Use a unique match immediately; otherwise narrow runtime matching to the tied definitions.
+	candidates := c
+	if len(initBytecode) > 0 {
+		initMatches := make(Contracts, 0, 1)
+		for _, contract := range c {
+			compiledInit := contract.CompiledContract().InitBytecode
+			if len(compiledInit) == 0 || len(compiledInit) > len(initBytecode) ||
+				!bytes.Equal(compiledInit, initBytecode[:len(compiledInit)]) {
+				continue
+			}
+			initMatches = append(initMatches, contract)
+		}
+		if len(initMatches) == 1 {
+			return initMatches[0]
+		}
+		if len(initMatches) > 1 {
+			candidates = initMatches
+			initBytecode = nil
 		}
 	}
 
-	// If we found no definition, return nil.
-	return nil
+	// Loop through the remaining contract definitions to find one runtime match.
+	var runtimeMatch *Contract
+	for i := 0; i < len(candidates); i++ {
+		if candidates[i].CompiledContract().IsMatch(initBytecode, runtimeBytecode) {
+			if runtimeMatch != nil {
+				return nil
+			}
+			runtimeMatch = candidates[i]
+		}
+	}
+	return runtimeMatch
 }
 
 // Contract describes a compiled smart contract.

@@ -725,7 +725,7 @@ func (fw *FuzzerWorker) run(baseTestChain *chain.TestChain) (bool, error) {
 
 		// If we have coverage-guided fuzzing enabled, create a tracer to collect coverage and connect it to the chain.
 		if fw.fuzzer.config.Fuzzing.CoverageEnabled {
-			fw.coverageTracer = coverage.NewCoverageTracer()
+			fw.coverageTracer = coverage.NewCoverageTracerWithRuntimeBytecodeResolver(fw.fuzzer.coverageRuntimeBytecodeResolver)
 			initializedChain.AddTracer(fw.coverageTracer.NativeTracer(), true, false)
 		}
 
