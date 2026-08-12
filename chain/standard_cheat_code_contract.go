@@ -364,25 +364,57 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		},
 	)
 
+	// queueFrameEntryPrank preserves sender spoofing for non-CALL frames. CALL
+	// is handled before value-transfer checks by the medusa-geth extension.
+	queueFrameEntryPrank := func(prankData *cheatCodePrankData) {
+		var hookFn func()
+		hookFn = func() {
+			if !prankData.enabled {
+				return
+			}
+
+			prankCallFrame := tracer.CurrentCallFrame()
+			if prankCallFrame == nil || tracer.PreviousCallFrame() != prankData.owner {
+				return
+			}
+
+			// EVM.Call has already selected the final caller for CALL frames.
+			// Requeue persistent state without overwriting an arm-order winner.
+			if prankCallFrame.callType == vm.CALL {
+				if prankData.persistent {
+					prankData.owner.onNextFrameEnterHooks.Push(hookFn)
+				}
+				return
+			}
+
+			// We can cast OpContext to ScopeContext because OnOpcode provides it.
+			scopeContext := prankCallFrame.vmScope.(*vm.ScopeContext)
+			original := scopeContext.Caller()
+			scopeContext.Contract.SetCaller(prankData.msgSender)
+			if prankData.persistent {
+				prankData.owner.onNextFrameEnterHooks.Push(hookFn)
+			} else {
+				prankData.enabled = false
+			}
+			prankCallFrame.onFrameExitRestoreHooks.Push(func() {
+				scopeContext.Contract.SetCaller(original)
+			})
+		}
+		prankData.owner.onNextFrameEnterHooks.Push(hookFn)
+	}
+
 	// Prank: Sets the msg.sender within the next EVM call scope created by the caller.
 	contract.addMethod(
 		"prank", abi.Arguments{{Type: typeAddress}}, abi.Arguments{},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
-			// Obtain the caller frame. This is a pre-compile, so we want to add an event to the frame which called us,
-			// so when it enters the next frame in its scope, we trigger the prank.
-			cheatCodeCallerFrame := tracer.PreviousCallFrame()
-			cheatCodeCallerFrame.onNextFrameEnterHooks.Push(func() {
-				// We entered the scope we want to prank, store the original value, patch, and add a hook to restore it
-				// when this frame is exited.
-				prankCallFrame := tracer.CurrentCallFrame()
-				// We can cast OpContext to ScopeContext because that is the type passed to OnOpcode.
-				scopeContext := prankCallFrame.vmScope.(*vm.ScopeContext)
-				original := scopeContext.Caller()
-				scopeContext.Contract.SetCaller(inputs[0].(common.Address))
-				prankCallFrame.onFrameExitRestoreHooks.Push(func() {
-					scopeContext.Contract.SetCaller(original)
-				})
-			})
+			callerFrame := tracer.PreviousCallFrame()
+			prankData := &cheatCodePrankData{
+				enabled:   true,
+				msgSender: inputs[0].(common.Address),
+				owner:     callerFrame,
+			}
+			callerFrame.callCallerOverrides = append(callerFrame.callCallerOverrides, prankData)
+			queueFrameEntryPrank(prankData)
 			return nil, nil
 		},
 	)
@@ -409,29 +441,20 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 
 	// Define our prank context and key mapping key to store it with.
 	const extraDataKeyStartPrank = "cheatCodeStartPrankData"
-	// StartPrankData holds the data for a startPrank operation.
-	type StartPrankData struct {
-		// enabled describes if this prank is currently active.
-		enabled bool
-		// msgSender describes the msg.sender to spoof for this prank.
-		msgSender common.Address
-		// txOrigin describes the tx.origin to spoof for this prank.
-		// TODO: This is currently not used since we don't support spoofing of tx.origin.
-		txOrigin *common.Address
-		// delegateCall is an optional flag to handle delegatecalls.
-		// TODO: This is currently not used since we don't support delegatecalls yet.
-		delegateCall bool
-		// setAtCallDepth describes the call depth at which this prank was set.
-		setAtCallDepth uint64
-	}
 
 	// stopPrankFn holds the core functionality to stop an ongoing startPrank operation.
-	stopPrankFn := func() {
+	stopPrankFn := func(expected *cheatCodePrankData) {
 		// Mark any `startPrank` data as disabled and delete it
 		topLevelCallFrame := tracer.TopLevelCallFrame()
-		phd := utils.MapFetchCasted[string, *StartPrankData](topLevelCallFrame.extraData, extraDataKeyStartPrank)
-		if phd != nil {
-			(*phd).enabled = false
+		if topLevelCallFrame == nil {
+			return
+		}
+		active := utils.MapFetchCasted[string, *cheatCodePrankData](
+			topLevelCallFrame.extraData,
+			extraDataKeyStartPrank,
+		)
+		if active != nil && (expected == nil || *active == expected) {
+			(*active).enabled = false
 			delete(topLevelCallFrame.extraData, extraDataKeyStartPrank)
 		}
 	}
@@ -439,10 +462,7 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 	// startPrankFn holds the core functionality to prank the msg.sender for subsequent calls until stopPrank is called.
 	startPrankFn := func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
 		// Support all function prototypes by checking arg types and fetching appropriately.
-		prankData := StartPrankData{
-			enabled:        true,
-			setAtCallDepth: tracer.callDepth - 1,
-		}
+		prankData := cheatCodePrankData{enabled: true, persistent: true}
 
 		// Since the startPrank function has multiple overloads, we need to check the argument count and fetch appropriately.
 		if len(inputs) == 1 {
@@ -467,77 +487,20 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		}
 
 		// Stop any existing prank as we'll be overwriting it.
-		stopPrankFn()
+		stopPrankFn(nil)
+
+		callerFrame := tracer.PreviousCallFrame()
+		prankData.owner = callerFrame
 
 		// Since startPrank/stopPrank don't act as a stack, we will simply set the prank data
 		// across the whole transaction. So we'll store it within the top level call frame for easy access.
 		topLevelCallFrame := tracer.TopLevelCallFrame()
 		topLevelCallFrame.extraData[extraDataKeyStartPrank] = &prankData
-
-		// Obtain the caller frame. This is a pre-compile, so we want to add an event to the frame which called us,
-		// so when it enters the next frame in its scope, we trigger the prank.
-		var hookFn func() = nil
-		hookFn = func() {
-			// If this prank was disabled but the hooks remain, do nothing until they clear out.
-			if !prankData.enabled {
-				return
-			}
-
-			// Obtain the call frame to prank
-			prankCallFrame := tracer.CurrentCallFrame()
-
-			// We can cast OpContext to ScopeContext because that is the type passed to OnOpcode.
-			scopeContext := prankCallFrame.vmScope.(*vm.ScopeContext)
-
-			// Determine if this is a delegatecall.
-			isPrankedDelegateCall := false
-			if prankData.delegateCall {
-				if scopeContext.Contract.Address() != prankCallFrame.vmScope.Address() {
-					isPrankedDelegateCall = true
-				}
-			}
-
-			// Store the original value and spoof our prank address.
-			originalMsgSender := scopeContext.Caller()
-			scopeContext.Contract.SetCaller(prankData.msgSender)
-
-			// Spoof the CodeAddress if we're pranking a delegatecall now.
-			originalCodeAddress := scopeContext.Contract.Address()
-			if isPrankedDelegateCall {
-				// TODO: Prank CodeAddress.
-				_ = originalCodeAddress // remove me (temp to avoid linter warnings)
-				//  This is an addr field in `scopeContext.Contract.self`, which is unexposed in medusa-geth for now.
-			}
-			// TODO: Spoof tx.origin
-
-			// Propagate the prank into next call in the same scope.
-			if tracer.callDepth > prankData.setAtCallDepth {
-				tracer.PreviousCallFrame().onNextFrameEnterHooks.Push(hookFn)
-			}
-
-			// Restore on exit (though pranking will continue for other frames)
-			prankCallFrame.onFrameExitRestoreHooks.Push(func() {
-				// If this prank was disabled but the hooks remain, do nothing until they clear out.
-				if !prankData.enabled {
-					return
-				}
-
-				// Restore msg.sender and, if delegatecall flag enabled, code address
-				scopeContext.Contract.SetCaller(originalMsgSender)
-				if isPrankedDelegateCall {
-					// TODO: Restore CodeAddress
-					_ = originalCodeAddress
-				}
-
-				// TODO: Restore tx.origin
-
-				// If we exit the depth we started pranking at, remove the prank.
-				if tracer.callDepth == prankData.setAtCallDepth {
-					stopPrankFn()
-				}
-			})
-		}
-		tracer.PreviousCallFrame().onNextFrameEnterHooks.Push(hookFn)
+		callerFrame.callCallerOverrides = append(callerFrame.callCallerOverrides, &prankData)
+		queueFrameEntryPrank(&prankData)
+		callerFrame.onFrameExitRestoreHooks.Push(func() {
+			stopPrankFn(&prankData)
+		})
 		return nil, nil
 	}
 
@@ -554,7 +517,7 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 		"stopPrank", abi.Arguments{}, abi.Arguments{},
 		func(tracer *cheatCodeTracer, inputs []any) ([]any, *cheatCodeRawReturnData) {
 			// Call the core stopPrankFn to disable any active prank.
-			stopPrankFn()
+			stopPrankFn(nil)
 			return nil, nil
 		},
 	)
