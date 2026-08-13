@@ -77,4 +77,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/crytic/medusa-geth => github.com/nisedo/medusa-geth v0.0.0-20260802162102-a4e6edf4db13
+replace github.com/crytic/medusa-geth => github.com/nisedo/medusa-geth v0.0.0-20260812140207-79aaf4587163

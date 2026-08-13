@@ -45,8 +45,33 @@ type cheatCodeTracer struct {
 	nextSnapshotToken uint64
 }
 
+type cheatCodePrankData struct {
+	// enabled describes whether this prank is currently active.
+	enabled bool
+	// persistent distinguishes startPrank from one-shot prank.
+	persistent bool
+	// msgSender describes the msg.sender to spoof for this prank.
+	msgSender common.Address
+	// txOrigin describes the tx.origin to spoof for this prank.
+	// TODO: This is currently unused because tx.origin spoofing is unsupported.
+	txOrigin *common.Address
+	// delegateCall indicates whether the prank applies to delegate calls.
+	// TODO: This is currently unused because delegate-call prank support is unfinished.
+	delegateCall bool
+	// owner is the exact call frame that armed this prank. A startPrank only
+	// applies to direct CALLs made by that frame.
+	owner *cheatCodeTracerCallFrame
+}
+
 // cheatCodeTracerCallFrame represents per-call-frame data traced by a cheatCodeTracer.
 type cheatCodeTracerCallFrame struct {
+	// callCallerOverrides describes CALL caller overrides armed by this exact
+	// frame. Entries retain arm order so the last active prank wins.
+	callCallerOverrides []*cheatCodePrankData
+
+	// callType describes the opcode that entered this frame.
+	callType vm.OpCode
+
 	// onNextFrameEnterHooks describes hooks which will be executed the next time this call frame executes a call,
 	// creating "the next call frame".
 	// The hooks are executed as a queue on entry.
@@ -168,6 +193,34 @@ func (t *cheatCodeTracer) TopLevelCallFrame() *cheatCodeTracerCallFrame {
 	return t.callFrames[0]
 }
 
+// overrideCallCaller resolves prank and startPrank before CALL uses its caller
+// for tracing, balance checks, value transfer, and child-frame construction.
+func (t *cheatCodeTracer) overrideCallCaller(context vm.CallCallerOverrideContext) common.Address {
+	frame := t.CurrentCallFrame()
+	if frame == nil || isCheatCodeAddress(context.To) {
+		return context.From
+	}
+
+	caller := context.From
+	retained := frame.callCallerOverrides[:0]
+	for _, prank := range frame.callCallerOverrides {
+		if !prank.enabled || prank.owner != frame {
+			continue
+		}
+		caller = prank.msgSender
+		if prank.persistent {
+			retained = append(retained, prank)
+		} else {
+			// One-shot pranks are consumed by this CALL attempt, including an
+			// insufficient-balance failure or callee revert.
+			prank.enabled = false
+		}
+	}
+	clear(frame.callCallerOverrides[len(retained):])
+	frame.callCallerOverrides = retained
+	return caller
+}
+
 // OnTxStart is called upon the start of transaction execution, as defined by tracers.Tracer.
 func (t *cheatCodeTracer) OnTxStart(vm *tracing.VMContext, tx *coretypes.Transaction, from common.Address) {
 	// Reset our capture state
@@ -192,6 +245,7 @@ func (t *cheatCodeTracer) OnEnter(depth int, typ byte, from common.Address, to c
 	// Create our call frame struct to track data for this initial entry call frame.
 	isTopLevelFrame := depth == 0
 	callFrameData := newCheatCodeTracerCallFrame()
+	callFrameData.callType = vm.OpCode(typ)
 	var parentCallFrame *cheatCodeTracerCallFrame
 	if !isTopLevelFrame {
 		// We haven't updated our call depth yet, so obtain the "previous" call frame (current for now)

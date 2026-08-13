@@ -335,6 +335,30 @@ func TestCheatCodes(t *testing.T) {
 	}
 }
 
+// TestPrankPayableValueCheatCode verifies that prank and startPrank use the
+// spoofed msg.sender as the balance source for value-bearing CALLs.
+func TestPrankPayableValueCheatCode(t *testing.T) {
+	runFuzzerTest(t, &fuzzerSolcFileTest{
+		filePath: "testdata/contracts/cheat_codes/vm/prank_value.sol",
+		configUpdates: func(config *config.ProjectConfig) {
+			config.Fuzzing.TargetContracts = []string{"TestContract"}
+			config.Fuzzing.Workers = 1
+			config.Fuzzing.CallSequenceLength = 1
+			config.Fuzzing.TestLimit = 1
+			config.Fuzzing.Testing.PropertyTesting.Enabled = false
+			config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+			config.Fuzzing.Testing.AssertionTesting.Enabled = true
+			config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+			config.Slither.UseSlither = false
+		},
+		method: func(f *fuzzerTestContext) {
+			err := f.fuzzer.Start()
+			assert.NoError(t, err)
+			assertFailedTestsExpected(f, false)
+		},
+	})
+}
+
 type scriptedBoolValueGenerator struct {
 	valuegeneration.ValueGenerator
 	values []bool
