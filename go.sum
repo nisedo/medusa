@@ -123,8 +123,8 @@ github.com/mattn/go-runewidth v0.0.16 h1:E5ScNMtiwvlvB5paMFdw9p4kSQzbXFikJ5SQO6T
 github.com/mattn/go-runewidth v0.0.16/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
-github.com/nisedo/medusa-geth v0.0.0-20260802162102-a4e6edf4db13 h1:+sBB92LN0LuCDhux7CAm0hclccmp+vSEtoLlgDA/gXY=
-github.com/nisedo/medusa-geth v0.0.0-20260802162102-a4e6edf4db13/go.mod h1:Of9UoKsMjqZO047+RArQyB0t9/+YeJAHiKHM5vGPUU8=
+github.com/nisedo/medusa-geth v0.0.0-20260812140207-79aaf4587163 h1:Bx0ThVHdu48gBIargEVgrkCfabvJW+r4nUqJEwn6j8g=
+github.com/nisedo/medusa-geth v0.0.0-20260812140207-79aaf4587163/go.mod h1:Of9UoKsMjqZO047+RArQyB0t9/+YeJAHiKHM5vGPUU8=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/nxadm/tail v1.4.11 h1:8feyoE3OzPrcshW5/MJ4sGESc5cqmGkGCWlco4l0bqY=
 github.com/nxadm/tail v1.4.11/go.mod h1:OTaG3NK980DZzxbRq6lEuzgU+mug70nY11sMd4JXXHc=

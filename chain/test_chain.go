@@ -201,6 +201,7 @@ func newTestChainWithStateFactory(
 			return nil, err
 		}
 		vmConfigExtensions.CallFrameResultOverride = cheatTracer.overrideCallFrameResult
+		vmConfigExtensions.CallCallerOverride = cheatTracer.overrideCallCaller
 		for _, cheatContract := range cheatContracts {
 			genesisDefinition.Alloc[cheatContract.address] = gethTypes.Account{
 				Balance: big.NewInt(0),
