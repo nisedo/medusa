@@ -106,7 +106,7 @@ func NewMutationalValueGenerator(config *MutationalValueGeneratorConfig, valueSe
 // MutationalValueGeneratorConfig).
 func (g *MutationalValueGenerator) getMutationParams(inputsLen int) (int, int) {
 	inputIdx := g.randomProvider.Intn(inputsLen)
-	mutationCount := g.randomProvider.Intn(((g.config.MaxMutationRounds - g.config.MinMutationRounds) + 1) + g.config.MinMutationRounds)
+	mutationCount := g.randomProvider.Intn(g.config.MaxMutationRounds-g.config.MinMutationRounds+1) + g.config.MinMutationRounds
 	return inputIdx, mutationCount
 }
 
@@ -428,7 +428,7 @@ func (g *MutationalValueGenerator) MutateBool(bl bool) bool {
 	// Determine whether to perform mutations against this input or just return it as-is.
 	randomGeneratorDecision := g.randomProvider.Float32()
 	if randomGeneratorDecision < g.config.MutateBoolProbability {
-		return g.RandomValueGenerator.GenerateBool()
+		return g.GenerateBool()
 	}
 	return bl
 }

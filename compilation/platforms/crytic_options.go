@@ -129,7 +129,7 @@ func applyCryticStringOption(config map[string]json.RawMessage, name string, des
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return fmt.Errorf("Crytic Compile config option %q must be a string or null", name)
+		return fmt.Errorf("crytic-compile config option %q must be a string or null", name)
 	}
 	*destination = value
 	return nil
@@ -142,7 +142,7 @@ func applyCryticBoolOption(config map[string]json.RawMessage, name string, desti
 	}
 	var value bool
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return fmt.Errorf("Crytic Compile config option %q must be a boolean or null", name)
+		return fmt.Errorf("crytic-compile config option %q must be a boolean or null", name)
 	}
 	*destination = value
 	return nil
@@ -165,7 +165,7 @@ func cryticArgLastValue(args []string, name string) (string, bool, error) {
 	for index, arg := range args {
 		if arg == name {
 			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
-				return "", false, fmt.Errorf("Crytic Compile option %q requires a value", name)
+				return "", false, fmt.Errorf("crytic-compile option %q requires a value", name)
 			}
 			value = args[index+1]
 			present = true
