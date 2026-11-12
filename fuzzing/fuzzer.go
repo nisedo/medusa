@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/crytic/medusa-geth/crypto"
@@ -583,7 +584,9 @@ func (f *Fuzzer) AddCompilationTargets(compilations []compilationTypes.Compilati
 	// This ensures that libraries are deployed before contracts that depend on them
 	f.deploymentOrder, err = fuzzingutils.GetDeploymentOrder(libraryDependencies, predeploys, f.config.Fuzzing.TargetContracts)
 	if err != nil {
+		// A partial order would silently drop contracts, so fall back to deploying targets in their configured order.
 		f.logger.Warn("Could not get a deployment order", err)
+		f.deploymentOrder = nil
 	}
 }
 
@@ -706,6 +709,19 @@ func chainSetupFromCompilations(fuzzer *Fuzzer, testChain *chain.TestChain) (*ex
 			targetContracts[name] = true
 			if i < len(fuzzer.config.Fuzzing.TargetContractsBalances) {
 				targetContractBalances[name] = fuzzer.config.Fuzzing.TargetContractsBalances[i]
+			}
+		}
+
+		// The deployment order only contains compiled contracts, so a target or predeploy missing from it (e.g. a
+		// misspelled name) would otherwise be skipped without any error.
+		for _, name := range fuzzer.config.Fuzzing.TargetContracts {
+			if !genesisMappedContracts[name] && !slices.Contains(fuzzer.deploymentOrder, name) {
+				return nil, fmt.Errorf("%v was specified in the target contracts but was not found in the compilation artifacts", name)
+			}
+		}
+		for name := range fuzzer.config.Fuzzing.PredeployedContracts {
+			if !genesisMappedContracts[name] && !slices.Contains(fuzzer.deploymentOrder, name) {
+				return nil, fmt.Errorf("%v was specified in the predeployed contracts but was not found in the compilation artifacts", name)
 			}
 		}
 
@@ -1007,12 +1023,30 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 		}
 	}
 
-	// Define a flag that indicates whether we have cancelled fuzzing or not
-	working := !utils.CheckContextDone(f.ctx)
+	// Define a flag that indicates whether we have cancelled fuzzing or not. Worker goroutines clear it.
+	var working atomic.Bool
+	working.Store(!utils.CheckContextDone(f.ctx))
+
+	// Track the first error any worker goroutine encounters. Worker goroutines and this loop share it.
+	var (
+		firstErr     error
+		firstErrLock sync.Mutex
+	)
+	getErr := func() error {
+		firstErrLock.Lock()
+		defer firstErrLock.Unlock()
+		return firstErr
+	}
+	recordErr := func(err error) {
+		firstErrLock.Lock()
+		defer firstErrLock.Unlock()
+		if firstErr == nil && err != nil {
+			firstErr = err
+		}
+	}
 
 	// Create workers and start fuzzing.
-	var err error
-	for err == nil && working {
+	for getErr() == nil && working.Load() {
 		// Send an item into our channel to queue up a spot. This will block us if we hit capacity until a worker
 		// slot is freed up.
 		threadReserveChannel <- struct{}{}
@@ -1030,28 +1064,21 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 			// Create a new worker for this fuzzing.
 			worker, workerCreatedErr := newFuzzerWorker(f, workerSlotInfo.index, workerSlotInfo.randomProvider)
 			f.workers[workerSlotInfo.index] = worker
-			if err == nil && workerCreatedErr != nil {
-				err = workerCreatedErr
-			}
+			recordErr(workerCreatedErr)
 
-			if err == nil {
+			if getErr() == nil {
 				// Publish an event indicating we created a worker.
-				workerCreatedErr = f.Events.WorkerCreated.Publish(FuzzerWorkerCreatedEvent{Worker: worker})
-				if err == nil && workerCreatedErr != nil {
-					err = workerCreatedErr
-				}
+				recordErr(f.Events.WorkerCreated.Publish(FuzzerWorkerCreatedEvent{Worker: worker}))
 			}
 
 			// Run the worker and check if we received a cancelled signal, or we encountered an error.
-			if err == nil {
+			if getErr() == nil {
 				ctxCancelled, workerErr := worker.run(baseTestChain)
-				if workerErr != nil {
-					err = workerErr
-				}
+				recordErr(workerErr)
 
 				// If we received a cancelled signal, signal our exit from the working loop.
-				if working && ctxCancelled {
-					working = false
+				if ctxCancelled {
+					working.Store(false)
 				}
 			}
 
@@ -1061,10 +1088,7 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 			availableWorkerIndexedLock.Unlock()
 
 			// Publish an event indicating we destroyed a worker.
-			workerDestroyedErr := f.Events.WorkerDestroyed.Publish(FuzzerWorkerDestroyedEvent{Worker: worker})
-			if err == nil && workerDestroyedErr != nil {
-				err = workerDestroyedErr
-			}
+			recordErr(f.Events.WorkerDestroyed.Publish(FuzzerWorkerDestroyedEvent{Worker: worker}))
 
 			// Unblock our channel by freeing our capacity of another item, making way for another worker.
 			<-threadReserveChannel
@@ -1072,7 +1096,7 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 	}
 
 	// Explicitly call cancel on our emergency context to ensure all threads exit if we encountered an error.
-	if err != nil {
+	if getErr() != nil {
 		f.Terminate()
 	}
 
@@ -1091,7 +1115,7 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	return err
+	return getErr()
 }
 
 // Start begins a fuzzing operation on the provided project configuration. This operation will not return until an error
@@ -1357,7 +1381,7 @@ func (f *Fuzzer) printMetricsLoop() {
 		callsTested := f.metrics.CallsTested()
 		sequencesTested := f.metrics.SequencesTested()
 		gasUsed := f.metrics.GasUsed()
-		failedSequences := f.metrics.FailedSequences()
+		failedTests := f.metrics.FailedTests()
 		workerStartupCount := f.metrics.WorkerStartupCount()
 		workersShrinking := f.metrics.WorkersShrinkingCount()
 
@@ -1383,7 +1407,7 @@ func (f *Fuzzer) printMetricsLoop() {
 		logBuffer.Append(", seq/s: ", colors.Bold, fmt.Sprintf("%6d", seqPerSec), colors.Reset)
 		logBuffer.Append(", branches: ", colors.Bold, fmt.Sprintf("%6d", f.corpus.CoverageMaps().BranchesHit()), colors.Reset)
 		logBuffer.Append(", corpus: ", colors.Bold, fmt.Sprintf("%5d", f.corpus.ActiveMutableSequenceCount()), colors.Reset)
-		logBuffer.Append(", failures: ", colors.Bold, fmt.Sprintf("%d/%d", failedSequences, sequencesTested), colors.Reset)
+		logBuffer.Append(", failures: ", colors.Bold, fmt.Sprintf("%d/%d", failedTests, sequencesTested), colors.Reset)
 		logBuffer.Append(", gas/s: ", colors.Bold, fmt.Sprintf("%12d", gasPerSec), colors.Reset)
 		if f.logger.Level() <= zerolog.DebugLevel {
 			resetsPerSec := uint64(float64(new(big.Int).Sub(workerStartupCount, lastWorkerStartupCount).Uint64()) / secondsSinceLastUpdate)

@@ -163,7 +163,7 @@ func (fw *FuzzerWorker) ValueMutator() valuegeneration.ValueMutator {
 // should have in the corpus' weighted random chooser.
 func (fw *FuzzerWorker) getNewCorpusCallSequenceWeight() *big.Int {
 	// Return our weight, ensuring it is non-zero.
-	return new(big.Int).Add(fw.workerMetrics().sequencesTested, big.NewInt(1))
+	return new(big.Int).SetUint64(fw.workerMetrics().sequencesTested.Load() + 1)
 }
 
 // onChainContractDeploymentAddedEvent is the event callback used when the chain detects a new contract deployment.
@@ -386,8 +386,7 @@ func (fw *FuzzerWorker) testNextCallSequence() (_ []ShrinkCallSequenceRequest, e
 		// running tests, or counting the call as an ordinary revert.
 		if chain.IsAssumeResult(latestMessageResult.ExecutionResult) {
 			assumptionRejected = true
-			workerMetrics := fw.workerMetrics()
-			workerMetrics.assumeRejects.Add(workerMetrics.assumeRejects, big.NewInt(1))
+			fw.workerMetrics().assumeRejects.Add(1)
 
 			maxAssumeRejects := fw.fuzzer.config.Fuzzing.MaxAssumeRejects
 			if maxAssumeRejects > 0 && assumeRejects >= maxAssumeRejects {
@@ -425,9 +424,9 @@ func (fw *FuzzerWorker) testNextCallSequence() (_ []ShrinkCallSequenceRequest, e
 		}
 
 		// Update our metrics
-		fw.workerMetrics().callsTested.Add(fw.workerMetrics().callsTested, big.NewInt(1))
+		fw.workerMetrics().callsTested.Add(1)
 		lastCallSequenceElement := currentlyExecutedSequence[len(currentlyExecutedSequence)-1]
-		fw.workerMetrics().gasUsed.Add(fw.workerMetrics().gasUsed, new(big.Int).SetUint64(lastCallSequenceElement.ChainReference.Block.MessageResults[lastCallSequenceElement.ChainReference.TransactionIndex].Receipt.GasUsed))
+		fw.workerMetrics().gasUsed.Add(lastCallSequenceElement.ChainReference.MessageResults().Receipt.GasUsed)
 		fw.workerMetrics().updateRevertMetrics(lastCallSequenceElement)
 
 		// If our fuzzer context or the emergency context is cancelled, exit out immediately without results.
@@ -624,7 +623,7 @@ func (fw *FuzzerWorker) shrinkCallSequence(shrinkRequest ShrinkCallSequenceReque
 	shrinkAttempts := uint64(0)
 
 	// Set shrinking flag and log start
-	fw.workerMetrics().shrinking = true
+	fw.workerMetrics().shrinking.Store(true)
 	fw.fuzzer.logger.Info("[Worker ", fw.workerIndex, "] Shrinking call sequence for ", colors.GreenBold,
 		shrinkRequest.TestName, colors.Bold, " with ", len(shrinkRequest.CallSequenceToShrink), " call(s)")
 
@@ -673,7 +672,7 @@ func (fw *FuzzerWorker) shrinkCallSequence(shrinkRequest ShrinkCallSequenceReque
 	fw.fuzzer.logger.Info("[Worker ", fw.workerIndex, "] Shrinking complete after ",
 		shrinkAttempts, " attempts (limit: ", shrinkLimit, ")")
 
-	fw.workerMetrics().shrinking = false
+	fw.workerMetrics().shrinking.Store(false)
 
 	// If the shrink request wanted the sequence recorded in the corpus, do so now.
 	if shrinkRequest.RecordResultInCorpus {
@@ -782,7 +781,7 @@ func (fw *FuzzerWorker) run(baseTestChain *chain.TestChain) (bool, error) {
 	}
 
 	// Increase our generation metric as we successfully generated a test node
-	fw.workerMetrics().workerStartupCount.Add(fw.workerMetrics().workerStartupCount, big.NewInt(1))
+	fw.workerMetrics().workerStartupCount.Add(1)
 
 	// Save the current block index as all contracts have been deployed at this point, and we'll want to revert
 	// to this state between testing.
@@ -861,7 +860,7 @@ func (fw *FuzzerWorker) run(baseTestChain *chain.TestChain) (bool, error) {
 		}
 
 		// Update our sequences tested metrics
-		fw.workerMetrics().sequencesTested.Add(fw.workerMetrics().sequencesTested, big.NewInt(1))
+		fw.workerMetrics().sequencesTested.Add(1)
 		sequencesTested++
 	}
 

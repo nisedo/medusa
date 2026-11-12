@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/crytic/medusa/utils"
@@ -36,19 +37,20 @@ func TestFuzzerHooks(t *testing.T) {
 		},
 		method: func(f *fuzzerTestContext) {
 			// Attach to fuzzer hooks which simply set a success state.
-			var valueGenOk, chainSetupOk, callSeqTestFuncOk bool
+			// The hooks are called from every worker, so the flags are atomic.
+			var valueGenOk, chainSetupOk, callSeqTestFuncOk atomic.Bool
 			existingSeqGenConfigFunc := f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc
 			f.fuzzer.Hooks.NewCallSequenceGeneratorConfigFunc = func(fuzzer *Fuzzer, valueSet *valuegeneration.ValueSet, randomProvider *rand.Rand) (*CallSequenceGeneratorConfig, error) {
-				valueGenOk = true
+				valueGenOk.Store(true)
 				return existingSeqGenConfigFunc(fuzzer, valueSet, randomProvider)
 			}
 			existingChainSetupFunc := f.fuzzer.Hooks.ChainSetupFunc
 			f.fuzzer.Hooks.ChainSetupFunc = func(fuzzer *Fuzzer, testChain *chain.TestChain) (*executiontracer.ExecutionTrace, error) {
-				chainSetupOk = true
+				chainSetupOk.Store(true)
 				return existingChainSetupFunc(fuzzer, testChain)
 			}
 			f.fuzzer.Hooks.CallSequenceTestFuncs = append(f.fuzzer.Hooks.CallSequenceTestFuncs, func(worker *FuzzerWorker, callSequence calls.CallSequence) ([]ShrinkCallSequenceRequest, error) {
-				callSeqTestFuncOk = true
+				callSeqTestFuncOk.Store(true)
 				return make([]ShrinkCallSequenceRequest, 0), nil
 			})
 
@@ -60,9 +62,9 @@ func TestFuzzerHooks(t *testing.T) {
 			assertFailedTestsExpected(f, true)
 
 			// Assert that our hooks worked
-			assert.True(t, valueGenOk, "could not hook value generator func")
-			assert.True(t, chainSetupOk, "could not hook chain setup func")
-			assert.True(t, callSeqTestFuncOk, "could not hook call sequence test func")
+			assert.True(t, valueGenOk.Load(), "could not hook value generator func")
+			assert.True(t, chainSetupOk.Load(), "could not hook chain setup func")
+			assert.True(t, callSeqTestFuncOk.Load(), "could not hook call sequence test func")
 		},
 	})
 }
@@ -357,6 +359,49 @@ func TestCheatCodes(t *testing.T) {
 			},
 		})
 	}
+}
+
+// TestUnknownTargetContractFails verifies that a target contract which is not in the compilation artifacts (e.g. a
+// misspelled name) stops the fuzzer with an error instead of being skipped silently.
+func TestUnknownTargetContractFails(t *testing.T) {
+	runFuzzerTest(t, &fuzzerSolcFileTest{
+		filePath: "testdata/contracts/vm_tests/block_number_increasing.sol",
+		configUpdates: func(config *config.ProjectConfig) {
+			config.Fuzzing.TargetContracts = []string{"TestContract", "MisspelledContract"}
+			config.Fuzzing.TestLimit = 1
+			config.Slither.UseSlither = false
+		},
+		method: func(f *fuzzerTestContext) {
+			err := f.fuzzer.Start()
+			assert.ErrorContains(t, err, "MisspelledContract was specified in the target contracts")
+		},
+	})
+}
+
+// TestCheatCodesInPropertyTestsDoNotLeak verifies that block environment cheat codes called by a property test are
+// discarded after the property test returns, rather than changing the chain for later transactions.
+func TestCheatCodesInPropertyTestsDoNotLeak(t *testing.T) {
+	runFuzzerTest(t, &fuzzerSolcFileTest{
+		filePath: "testdata/contracts/cheat_codes/vm/property_no_leak.sol",
+		configUpdates: func(config *config.ProjectConfig) {
+			config.Fuzzing.TargetContracts = []string{"TestContract"}
+			config.Fuzzing.Workers = 2
+			config.Fuzzing.TestLimit = 2_000
+			config.Fuzzing.Testing.PropertyTesting.Enabled = true
+			config.Fuzzing.Testing.AssertionTesting.Enabled = true
+			config.Fuzzing.Testing.OptimizationTesting.Enabled = false
+			config.Fuzzing.TestChainConfig.CheatCodeConfig.CheatCodesEnabled = true
+			config.Slither.UseSlither = false
+		},
+		method: func(f *fuzzerTestContext) {
+			// Start the fuzzer
+			err := f.fuzzer.Start()
+			assert.NoError(t, err)
+
+			// No transaction should have observed the property test's changes.
+			assertFailedTestsExpected(f, false)
+		},
+	})
 }
 
 // TestPrankPayableValueCheatCode verifies that prank and startPrank use the
@@ -976,12 +1021,13 @@ func TestDeploymentsSelfDestruct(t *testing.T) {
 			method: func(f *fuzzerTestContext) {
 				// Subscribe to any mined block events globally. When receiving them, check contract changes for a
 				// self-destruct.
-				selfDestructCount := 0
+				// Every worker publishes block events, so the count is atomic.
+				var selfDestructCount atomic.Int64
 				events.SubscribeAny(func(event chain.PendingBlockCommittedEvent) error {
 					for _, messageResults := range event.Block.MessageResults {
 						for _, contractDeploymentChange := range messageResults.ContractDeploymentChanges {
 							if contractDeploymentChange.SelfDestructed {
-								selfDestructCount++
+								selfDestructCount.Add(1)
 							}
 						}
 					}
@@ -993,7 +1039,7 @@ func TestDeploymentsSelfDestruct(t *testing.T) {
 				assert.NoError(t, err)
 
 				// When it's done, we should've had at least one self-destruction.
-				assert.Greater(t, selfDestructCount, 0, "no SELFDESTRUCT operations were detected, when they should have been.")
+				assert.Greater(t, selfDestructCount.Load(), int64(0), "no SELFDESTRUCT operations were detected, when they should have been.")
 			},
 		})
 	}

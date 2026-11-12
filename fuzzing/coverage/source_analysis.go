@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -604,8 +605,11 @@ func filterSourceMaps(compilation types.Compilation, sourceMap types.SourceMap) 
 	// Create our resulting source map
 	filteredMap := make(types.SourceMap, 0)
 
+	// Determine which source ranges encapsulate another range, once for the whole source map.
+	encapsulatingRanges := findEncapsulatingSourceRanges(sourceMap)
+
 	// Loop for each source map entry and determine if it should be included.
-	for i, sourceMapElement := range sourceMap {
+	for _, sourceMapElement := range sourceMap {
 		// Verify this file ID is not out of bounds for a source file index
 		if _, exists := compilation.SourceIdToPath[sourceMapElement.SourceUnitID]; !exists {
 			// TODO: We may also go out of bounds because this maps to a "generated source" which we do not have.
@@ -613,24 +617,59 @@ func filterSourceMaps(compilation types.Compilation, sourceMap types.SourceMap) 
 			continue
 		}
 
-		// Verify this source map does not overlap another
-		encapsulatesOtherMapping := false
-		for x, sourceMapElement2 := range sourceMap {
-			if i != x && sourceMapElement.SourceUnitID == sourceMapElement2.SourceUnitID &&
-				(sourceMapElement.Offset != sourceMapElement2.Offset || sourceMapElement.Length != sourceMapElement2.Length) {
-				if sourceMapElement2.Offset >= sourceMapElement.Offset &&
-					sourceMapElement2.Offset+sourceMapElement2.Length <= sourceMapElement.Offset+sourceMapElement.Length {
-					encapsulatesOtherMapping = true
-					break
-				}
-			}
-		}
-
-		if !encapsulatesOtherMapping {
+		// Verify this source map does not encapsulate another
+		sourceRange := sourceMapRange{start: sourceMapElement.Offset, end: sourceMapElement.Offset + sourceMapElement.Length}
+		if !encapsulatingRanges[sourceMapElement.SourceUnitID][sourceRange] {
 			filteredMap = append(filteredMap, sourceMapElement)
 		}
 	}
 	return filteredMap
+}
+
+// sourceMapRange describes the byte range [start, end) in a source file that a source map entry refers to.
+type sourceMapRange struct {
+	start int
+	end   int
+}
+
+// findEncapsulatingSourceRanges finds every source range in the provided source map which fully contains a different
+// source range of the same source file.
+// Returns the encapsulating ranges, keyed by source unit ID.
+func findEncapsulatingSourceRanges(sourceMap types.SourceMap) map[int]map[sourceMapRange]bool {
+	// Collect the distinct ranges of every source file. Many instructions share one range, so this is far smaller
+	// than the source map itself.
+	rangesBySource := make(map[int]map[sourceMapRange]struct{})
+	for _, sourceMapElement := range sourceMap {
+		ranges, exists := rangesBySource[sourceMapElement.SourceUnitID]
+		if !exists {
+			ranges = make(map[sourceMapRange]struct{})
+			rangesBySource[sourceMapElement.SourceUnitID] = ranges
+		}
+		ranges[sourceMapRange{start: sourceMapElement.Offset, end: sourceMapElement.Offset + sourceMapElement.Length}] = struct{}{}
+	}
+
+	encapsulating := make(map[int]map[sourceMapRange]bool, len(rangesBySource))
+	for sourceUnitID, ranges := range rangesBySource {
+		// Sort the ranges by start, then by end.
+		sorted := slices.SortedFunc(maps.Keys(ranges), func(a, b sourceMapRange) int {
+			return cmp.Or(cmp.Compare(a.start, b.start), cmp.Compare(a.end, b.end))
+		})
+
+		// Every range after index i starts at or after sorted[i], so sorted[i] contains one of them exactly when
+		// the smallest end among them is within sorted[i]. A range before index i can only be contained if it has
+		// the same start, in which case it has a smaller end and sits right before sorted[i].
+		result := make(map[sourceMapRange]bool)
+		smallestEndAfter := math.MaxInt
+		for i := len(sorted) - 1; i >= 0; i-- {
+			current := sorted[i]
+			if smallestEndAfter <= current.end || (i > 0 && sorted[i-1].start == current.start) {
+				result[current] = true
+			}
+			smallestEndAfter = min(smallestEndAfter, current.end)
+		}
+		encapsulating[sourceUnitID] = result
+	}
+	return encapsulating
 }
 
 // parseSourceLines splits the provided source code into SourceLineAnalysis objects.

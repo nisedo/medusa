@@ -1,7 +1,6 @@
 package fuzzing
 
 import (
-	"math/big"
 	"slices"
 	"sync"
 
@@ -93,10 +92,9 @@ func (t *AssertionTestCaseProvider) onFuzzerStarting(event FuzzerStartingEvent) 
 
 			// Create our test case
 			testCase := &AssertionTestCase{
-				status:         TestCaseStatusNotStarted,
+				testCaseState:  testCaseState{status: TestCaseStatusNotStarted},
 				targetContract: contract,
 				targetMethod:   method,
-				callSequence:   nil,
 			}
 
 			// Add to our test cases and register them with the fuzzer
@@ -114,9 +112,7 @@ func (t *AssertionTestCaseProvider) onFuzzerStarting(event FuzzerStartingEvent) 
 func (t *AssertionTestCaseProvider) onFuzzerStopping(event FuzzerStoppingEvent) error {
 	// Loop through each test case and set any tests with a running status to a passed status.
 	for _, testCase := range t.testCases {
-		if testCase.status == TestCaseStatusRunning {
-			testCase.status = TestCaseStatusPassed
-		}
+		testCase.transitionStatus(TestCaseStatusRunning, TestCaseStatusPassed)
 	}
 	return nil
 }
@@ -149,8 +145,8 @@ func (t *AssertionTestCaseProvider) onWorkerDeployedContractAdded(event FuzzerWo
 		t.testCasesLock.Lock()
 		testCase, testCaseExists := t.testCases[methodId]
 		t.testCasesLock.Unlock()
-		if testCaseExists && testCase.Status() == TestCaseStatusNotStarted {
-			testCase.status = TestCaseStatusRunning
+		if testCaseExists {
+			testCase.transitionStatus(TestCaseStatusNotStarted, TestCaseStatusRunning)
 		}
 	}
 	return nil
@@ -212,9 +208,8 @@ func (t *AssertionTestCaseProvider) callSequencePostCallTest(worker *FuzzerWorke
 				}
 
 				// Update our test state and report it finalized.
-				testCase.status = TestCaseStatusFailed
-				testCase.callSequence = &shrunkenCallSequence
-				worker.workerMetrics().failedSequences.Add(worker.workerMetrics().failedSequences, big.NewInt(1))
+				testCase.setFailed(shrunkenCallSequence, nil)
+				worker.workerMetrics().failedTests.Add(1)
 				worker.Fuzzer().ReportTestCaseFinished(testCase)
 				return nil
 			},

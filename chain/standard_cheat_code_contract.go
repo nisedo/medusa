@@ -128,7 +128,9 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 			// And the pending block time will allow for the new time to reflect
 			// permanently for the remainder of the chain's existence.
 			tracer.chain.pendingBlockContext.Time = newTime.Uint64()
-			tracer.chain.pendingBlock.Header.Time = newTime.Uint64()
+			if tracer.chain.pendingBlock != nil {
+				tracer.chain.pendingBlock.Header.Time = newTime.Uint64()
+			}
 
 			// If the transaction reverts, we will restore the original time
 			tracer.CurrentCallFrame().onChainRevertRestoreHooks.Push(func() {
@@ -161,7 +163,9 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 			// And the pending block number will allow for the number to reflect
 			// permanently for the remainder of the chain.
 			tracer.chain.pendingBlockContext.BlockNumber.Set(newBlockNumber)
-			tracer.chain.pendingBlock.Header.Number.Set(newBlockNumber)
+			if tracer.chain.pendingBlock != nil {
+				tracer.chain.pendingBlock.Header.Number.Set(newBlockNumber)
+			}
 
 			// If the transaction reverts, we will restore the original block number
 			tracer.CurrentCallFrame().onChainRevertRestoreHooks.Push(func() {
@@ -187,14 +191,19 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 			// Capture the original values independently because the active EVM
 			// context and pending header may start with different base fees.
 			originalContextBaseFee := new(big.Int).Set(tracer.chain.pendingBlockContext.BaseFee)
-			originalHeaderBaseFee := new(big.Int).Set(tracer.chain.pendingBlock.Header.BaseFee)
+			var originalHeaderBaseFee *big.Int
+			if tracer.chain.pendingBlock != nil {
+				originalHeaderBaseFee = new(big.Int).Set(tracer.chain.pendingBlock.Header.BaseFee)
+			}
 
 			// Update the pending block context and pending block's base fee
 			// The block context will reflect the base fee change in the current EVM context
 			// And the pending block will allow for the base fee to reflect
 			// permanently for the remainder of the chain.
 			tracer.chain.pendingBlockContext.BaseFee.Set(inputs[0].(*big.Int))
-			tracer.chain.pendingBlock.Header.BaseFee.Set(inputs[0].(*big.Int))
+			if tracer.chain.pendingBlock != nil {
+				tracer.chain.pendingBlock.Header.BaseFee.Set(inputs[0].(*big.Int))
+			}
 
 			// If the transaction reverts, we will restore the original base fee
 			tracer.CurrentCallFrame().onChainRevertRestoreHooks.Push(func() {
@@ -203,7 +212,7 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 				if tracer.chain.pendingBlockContext != nil {
 					tracer.chain.pendingBlockContext.BaseFee.Set(originalContextBaseFee)
 				}
-				if tracer.chain.pendingBlock != nil {
+				if tracer.chain.pendingBlock != nil && originalHeaderBaseFee != nil {
 					tracer.chain.pendingBlock.Header.BaseFee.Set(originalHeaderBaseFee)
 				}
 			})
@@ -253,7 +262,9 @@ func getStandardCheatCodeContract(tracer *cheatCodeTracer) (*CheatCodeContract, 
 			// And the pending block will allow for the coinbase change to reflect
 			// permanently for the remainder of the chain.
 			tracer.chain.pendingBlockContext.Coinbase = inputs[0].(common.Address)
-			tracer.chain.pendingBlock.Header.Coinbase = inputs[0].(common.Address)
+			if tracer.chain.pendingBlock != nil {
+				tracer.chain.pendingBlock.Header.Coinbase = inputs[0].(common.Address)
+			}
 
 			// If the transaction reverts, we will restore the original base fee
 			tracer.CurrentCallFrame().onChainRevertRestoreHooks.Push(func() {

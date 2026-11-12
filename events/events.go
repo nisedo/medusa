@@ -15,7 +15,7 @@ func (e *EventHandler[T]) EventType() reflect.Type {
 
 // globalEventHandlers describes a mapping of event types to EventHandler objects. These callbacks are called
 // any time any EventEmitter publishes an event of that type.
-var globalEventHandlers map[string][]any
+var globalEventHandlers = make(map[string][]any)
 
 // globalEventHandlersLock is a lock that provides thread synchronization when accessing globalEventHandlers. This
 // helps in avoiding concurrent access panics.
@@ -28,11 +28,6 @@ var globalEventHandlersLock sync.RWMutex
 func SubscribeAny[T any](callback EventHandler[T]) {
 	// Obtain the type of event this handler handles.
 	eventType := callback.EventType()
-
-	// If our global event handlers are nil, instantiate them.
-	if globalEventHandlers == nil {
-		globalEventHandlers = make(map[string][]any, 0)
-	}
 
 	// Acquire a thread lock for the next few operations to avoid concurrent access panics.
 	globalEventHandlersLock.Lock()
@@ -73,20 +68,17 @@ func (e *EventEmitter[T]) Publish(event T) error {
 	// Determine the event type
 	eventType := reflect.TypeOf(event)
 
-	// If we have any handlers, invoke them.
-	if globalEventHandlers != nil {
-		// Acquire a thread lock when fetching our event handlers to avoid concurrent access panics.
-		globalEventHandlersLock.RLock()
-		callbacks := globalEventHandlers[eventType.String()]
-		globalEventHandlersLock.RUnlock()
+	// Acquire a thread lock when fetching our global event handlers to avoid concurrent access panics.
+	globalEventHandlersLock.RLock()
+	callbacks := globalEventHandlers[eventType.String()]
+	globalEventHandlersLock.RUnlock()
 
-		// Call all relevant event handlers.
-		for i := 0; i < len(callbacks); i++ {
-			callback := callbacks[i].(EventHandler[T])
-			err := callback(event)
-			if err != nil {
-				return err
-			}
+	// Call all relevant event handlers.
+	for i := 0; i < len(callbacks); i++ {
+		callback := callbacks[i].(EventHandler[T])
+		err := callback(event)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

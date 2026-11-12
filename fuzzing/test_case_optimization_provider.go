@@ -134,6 +134,9 @@ func (t *OptimizationTestCaseProvider) runOptimizationTest(worker *FuzzerWorker,
 // in a "not started" state for every optimization test method discovered in the contract definitions known to the Fuzzer.
 func (t *OptimizationTestCaseProvider) onFuzzerStarting(event FuzzerStartingEvent) error {
 	// Reset our state
+	t.shrinkingRequestedLock.Lock()
+	t.shrinkingRequested = false
+	t.shrinkingRequestedLock.Unlock()
 	t.testCases = make(map[contracts.ContractMethodID]*OptimizationTestCase)
 	t.workerStates = make([]optimizationTestCaseProviderWorkerState, t.fuzzer.Config().Fuzzing.Workers)
 
@@ -152,10 +155,9 @@ func (t *OptimizationTestCaseProvider) onFuzzerStarting(event FuzzerStartingEven
 
 			// Create our optimization test case
 			optimizationTestCase := &OptimizationTestCase{
-				status:         TestCaseStatusNotStarted,
+				testCaseState:  testCaseState{status: TestCaseStatusNotStarted},
 				targetContract: contract,
 				targetMethod:   method,
-				callSequence:   nil,
 				value:          minInt256,
 			}
 
@@ -173,6 +175,11 @@ func (t *OptimizationTestCaseProvider) onFuzzerStarting(event FuzzerStartingEven
 func (t *OptimizationTestCaseProvider) onFuzzerStopping(event FuzzerStoppingEvent) error {
 	// Clear our optimization test methods
 	t.workerStates = nil
+
+	// Settle the final status of every test case that was running.
+	for _, testCase := range t.testCases {
+		testCase.finalize()
+	}
 	return nil
 }
 
@@ -211,9 +218,8 @@ func (t *OptimizationTestCaseProvider) onWorkerTestingComplete(event FuzzerWorke
 	// Iterate across each test case to see if there is a shrink request for it
 	for _, testCase := range t.testCases {
 		// We have a shrink request, let's send it to the fuzzer worker
-		if testCase.shrinkCallSequenceRequest != nil {
-			event.Worker.shrinkCallSequenceRequests = append(event.Worker.shrinkCallSequenceRequests, *testCase.shrinkCallSequenceRequest)
-			testCase.shrinkCallSequenceRequest = nil
+		if shrinkRequest := testCase.takeShrinkRequest(); shrinkRequest != nil {
+			event.Worker.shrinkCallSequenceRequests = append(event.Worker.shrinkCallSequenceRequests, *shrinkRequest)
 		}
 	}
 	return nil
@@ -241,9 +247,7 @@ func (t *OptimizationTestCaseProvider) onWorkerDeployedContractAdded(event Fuzze
 		t.testCasesLock.Unlock()
 
 		if optimizationTestCaseExists {
-			if optimizationTestCase.Status() == TestCaseStatusNotStarted {
-				optimizationTestCase.status = TestCaseStatusRunning
-			}
+			optimizationTestCase.transitionStatus(TestCaseStatusNotStarted, TestCaseStatusRunning)
 			if optimizationTestCase.Status() != TestCaseStatusFailed {
 				// Create our optimization test method reference.
 				workerState := &t.workerStates[event.Worker.WorkerIndex()]
@@ -312,13 +316,12 @@ func (t *OptimizationTestCaseProvider) callSequencePostCallTest(worker *FuzzerWo
 			return nil, err
 		}
 
-		// If we updated the test case's maximum value, we update our state immediately. Note that we are allowing
-		// for races here. We also update the test case's cached shrink request.
-		// TODO: Should we allow for races here?
-		if newValue.Cmp(testCase.value) == 1 {
-			// Update the test case's value and call sequence
-			testCase.value = newValue
-			testCase.callSequence = &callSequence
+		// If this call sequence increased the test case's maximum value, record it along with a request to shrink it.
+		// Another worker may record a higher value concurrently, in which case recordHigherValue keeps that one.
+		if testCase.exceedsValue(newValue) {
+			// The verifier below raises this as shrinking finds higher values, so keep it separate from newValue.
+			recordedValue := newValue
+			newValue := new(big.Int).Set(newValue)
 
 			// Create a request to shrink this call sequence.
 			shrinkRequest := ShrinkCallSequenceRequest{
@@ -365,16 +368,15 @@ func (t *OptimizationTestCaseProvider) callSequencePostCallTest(worker *FuzzerWo
 						return fmt.Errorf("optimized call sequence failed to maximize value")
 					}
 
-					// Update call sequence and trace
-					testCase.callSequence = &shrunkenCallSequence
-					testCase.optimizationTestTrace = executionTrace
+					// Update call sequence, trace and value
+					testCase.recordShrunkSequence(shrunkenCallSequence, executionTrace, shrunkenSequenceNewValue)
 					return nil
 				},
 				RecordResultInCorpus: true,
 			}
 
-			// Update the shrink request attached to this test case
-			testCase.shrinkCallSequenceRequest = &shrinkRequest
+			// Record the new maximum and the shrink request attached to it
+			testCase.recordHigherValue(recordedValue, callSequence, &shrinkRequest)
 		}
 	}
 

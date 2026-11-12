@@ -555,9 +555,14 @@ func (t *TestChain) CallContract(msg *core.Message, state types.MedusaStateDB, a
 		ConfigExtensions: t.vmConfigExtensions,
 	})
 
-	// Set our block context and chain config in order for cheatcodes to override what EVM interpreter sees.
+	// Set our block context and chain config in order for cheatcodes to override what EVM interpreter sees. They are
+	// put back once the call is done, since this call is not part of the pending block.
+	previousBlockContext, previousChainConfig := t.pendingBlockContext, t.pendingBlockChainConfig
 	t.pendingBlockContext = &evm.Context
 	t.pendingBlockChainConfig = evm.ChainConfig()
+	defer func() {
+		t.pendingBlockContext, t.pendingBlockChainConfig = previousBlockContext, previousChainConfig
+	}()
 
 	// Create a tx from our msg, for hashing/receipt purposes
 	tx := utils.MessageToTransaction(msg)
@@ -575,6 +580,13 @@ func (t *TestChain) CallContract(msg *core.Message, state types.MedusaStateDB, a
 
 	// Revert to our state snapshot to undo any changes.
 	state.RevertToSnapshot(snapshot)
+
+	// Cheatcodes can also change the pending block header and chain config (e.g. warp, roll, chainId), which the
+	// state snapshot does not cover. A transaction keeps the hooks that undo those changes for when its block is
+	// reverted; a call is never committed, so they are run right away.
+	callResults := &types.MessageResults{AdditionalResults: make(map[string]any)}
+	extendedTracerRouter.CaptureTxEndSetAdditionalResults(callResults)
+	callResults.OnRevertHookFuncs.Execute(false, true)
 
 	// Gather receipt for OnTxEnd
 	receipt := &gethTypes.Receipt{Type: tx.Type()}
