@@ -95,7 +95,7 @@ func MoveFile(sourcePath string, targetPath string) error {
 
 	// If the path refers to a directory, return an error
 	if sourceInfo.IsDir() {
-		return fmt.Errorf("could not copy file from '%s' to '%s' because the source path refers to a directory", sourcePath, targetPath)
+		return fmt.Errorf("could not move file from '%s' to '%s' because the source path refers to a directory", sourcePath, targetPath)
 	}
 
 	// Ensure the existence of the directory we wish to copy to.
@@ -147,7 +147,7 @@ func MakeDirectory(dirToMake string) error {
 
 	// dirToMake is a file, throw an error accordingly
 	if !dirInfo.IsDir() {
-		return fmt.Errorf("there is a file with the same name as %s", dirInfo)
+		return fmt.Errorf("there is a file with the same name as %s", dirToMake)
 	}
 
 	// Directory already exists, good to go

@@ -113,7 +113,7 @@ func cmdRunFuzz(cmd *cobra.Command, args []string) error {
 
 	// Possibility #2: If the --config flag was used, and we couldn't find the file, we'll throw an error
 	if configFlagUsed && existenceError != nil {
-		cmdLogger.Error("Failed to run the fuzz command", err)
+		cmdLogger.Error("Failed to run the fuzz command", existenceError)
 		return existenceError
 	}
 

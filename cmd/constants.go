@@ -7,6 +7,6 @@ const (
 	// DefaultCompilationPlatform describes the default compilation platform to use if one is not provided
 	DefaultCompilationPlatform = "crytic-compile"
 
-	// TargetFlagDescription stores the description for the --target flag
+	// TargetFlagDescription stores the description for the --compilation-target flag
 	TargetFlagDescription = "target contract or directory to compile"
 )

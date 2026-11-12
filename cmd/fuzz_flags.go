@@ -240,7 +240,7 @@ func updateProjectConfigWithFuzzFlags(cmd *cobra.Command, projectConfig *config.
 	}
 
 	// Update the verbosity levels
-	if cmd.Flags().Changed("verbosity") || cmd.Flags().Changed("v") {
+	if cmd.Flags().Changed("verbosity") {
 		verbosityCount, err := cmd.Flags().GetCount("verbosity")
 		if err != nil {
 			return err
