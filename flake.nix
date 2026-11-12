@@ -2,7 +2,7 @@
   description = "Medusa smart-contract fuzzer";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-25.05";
+    nixpkgs.url = "nixpkgs/nixos-26.05";
     utils.url = "github:numtide/flake-utils";
     crytic.url = "github:crytic/crytic.nix";
     crytic.inputs.nixpkgs.follows = "nixpkgs";
@@ -12,14 +12,22 @@
   outputs = inputs: with inputs;
     utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs { inherit system; config.allowUnfree = true; };
+      # Keep the compiler patched independently of the pinned nixpkgs snapshot.
+      go126 = pkgs.go_1_26.overrideAttrs (_: {
+        version = "1.26.10";
+        src = pkgs.fetchurl {
+          url = "https://go.dev/dl/go1.26.10.src.tar.gz";
+          hash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
+        };
+      });
     in rec {
 
       packages = {
-        medusa = pkgs.buildGoModule {
+        medusa = (pkgs.buildGo126Module.override { go = go126; }) {
           pname = "medusa";
           version = "1.5.1";
           src = ./.;
-          vendorHash = "sha256-Y0p33EMjv+k9fId2WyVO5WLmtefde3OtHlCndpC28L0=";
+          vendorHash = "sha256-zE0VBhrsU6+AzMbZ0pUO7uJwZ3iG1CuPsJQHR6iUQQI=";
           nativeBuildInputs = [
             crytic.packages.${system}.crytic-compile
             crytic.packages.${system}.slither
@@ -50,7 +58,7 @@
             # test dependencies
             nodejs
             # go development
-            go
+            go126
             gotools
             go-tools
             gopls

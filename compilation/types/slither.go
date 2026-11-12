@@ -143,7 +143,7 @@ func (s *SlitherConfig) runSlither(
 			cmd.Env = append(os.Environ(), fmt.Sprintf("SOLC_VERSION=%s", solcVersion))
 		}
 
-		// Run slither
+		// Run slither while keeping diagnostics separate from the JSON output.
 		start := time.Now()
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -174,7 +174,7 @@ func (s *SlitherConfig) runSlither(
 			if _, err = os.Stat(s.CachePath); err == nil {
 				// We will not handle the error of os.Remove since we have already checked for the file's existence
 				// and we have the right permissions.
-				os.Remove(s.CachePath)
+				_ = os.Remove(s.CachePath)
 			}
 		}
 	}

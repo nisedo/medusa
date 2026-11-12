@@ -5,7 +5,7 @@ Install this maintained fork from its `nisedo-dev` branch. Homebrew, `github.com
 
 ### Prerequisites
 
-- [Go 1.24 or later](https://go.dev/doc/install)
+- [Go 1.26.10 or later](https://go.dev/doc/install)
 - [`crytic-compile`](https://github.com/crytic/crytic-compile#installation) for the default compilation platform
 - [Slither](https://github.com/crytic/slither#how-to-install) for its optional value-generation analysis
 

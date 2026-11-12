@@ -180,7 +180,7 @@ func enrichFoundryCompilerOutput(
 				if len(contract.RuntimeBytecodeImmutableReferences) > 0 &&
 					!slices.Equal(contract.RuntimeBytecodeImmutableReferences, immutableReferences) {
 					return fmt.Errorf(
-						"Foundry build-info declares conflicting immutable references for contract %q in source %q",
+						"foundry build-info declares conflicting immutable references for contract %q in source %q",
 						artifactContractName,
 						owner.sourcePath,
 					)
@@ -301,7 +301,7 @@ func resolveFoundryBuildInfoDirectory(projectRoot string, options cryticEffectiv
 		return "", fmt.Errorf("could not inspect Foundry build-info directory %q: %w", buildInfoDirectory, err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("Foundry build-info path %q is not a directory", buildInfoDirectory)
+		return "", fmt.Errorf("foundry build-info path %q is not a directory", buildInfoDirectory)
 	}
 	resolvedDirectory, err := filepath.EvalSymlinks(buildInfoDirectory)
 	if err != nil {
@@ -339,13 +339,13 @@ func readFoundryCompilerOutputs(buildInfoDirectory string) ([]foundryCompilerOut
 				return nil, fmt.Errorf("could not parse Foundry build-info output %q: %w", companionPath, err)
 			}
 			if buildInfo.Output == nil {
-				return nil, fmt.Errorf("Foundry build-info output %q has no output object", companionPath)
+				return nil, fmt.Errorf("foundry build-info output %q has no output object", companionPath)
 			}
 		}
 		outputs = append(outputs, foundryCompilerOutputFile{path: path, output: *buildInfo.Output})
 	}
 	if len(outputs) == 0 {
-		return nil, fmt.Errorf("Foundry build-info directory %q contains no build-info JSON files", buildInfoDirectory)
+		return nil, fmt.Errorf("foundry build-info directory %q contains no build-info JSON files", buildInfoDirectory)
 	}
 	return outputs, nil
 }
