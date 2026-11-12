@@ -58,3 +58,4 @@ The compilation configuration defines the parameters to use while compiling a ta
 
 - **Type**: String
 - **Description**: Refers to the target that is being compiled. The target must be a single `.sol` file.
+- **Default**: `contract.sol`

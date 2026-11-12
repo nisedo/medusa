@@ -59,14 +59,12 @@ Tracking coverage is one of the most powerful features of `medusa`.
 
 > **Definition**: Coverage is a measure of what parts of the code have been executed by the fuzzer
 
-Coverage is tracked in a rather simple fashion. For each target contract, we maintain a byte array where the length of the
-byte array is equal to the length of that contract's bytecode. If a certain transaction caused us to execute an opcode
-that we had not executed before, we increased coverage of that contract.
+Medusa tracks branch markers for each contract. A marker records entry into a contract, a source and destination for
+`JUMP` or `JUMPI`, or the program counter where execution returned or reverted. A transaction increases coverage when
+it reaches a marker that the campaign has not seen before. For example, taking the other destination of a conditional
+jump adds a new marker.
 
-![Coverage Tracking Diagram](../static/coverage.png)
-
-As shown in the figure above, the `CALL` opcode was just executed causing the coverage array's value to be updated at that
-index. The next natural question is, how do we harness this information to improve the fuzzer?
+The next question is how Medusa uses this information to improve the fuzzer.
 
 This is where the idea of a **corpus** comes in.
 
@@ -113,7 +111,7 @@ for i < len(sequence) {
 
     # If coverage increased, add sequence[:i+1] to the corpus
     if increasedCoverage {
-        corpus.addCallSequence(tx[:i+1])
+        corpus.addCallSequence(sequence[:i+1])
     }
 
     # Check for invariant failures

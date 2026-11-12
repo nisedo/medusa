@@ -11,6 +11,7 @@ import (
 	"github.com/crytic/medusa-geth/eth/tracers"
 	"github.com/crytic/medusa/chain"
 	"github.com/crytic/medusa/chain/types"
+	"github.com/crytic/medusa/fuzzing/contracts"
 	"github.com/crytic/medusa/logging"
 )
 
@@ -65,6 +66,10 @@ type CoverageTracer struct {
 	// before any contracts are added by test sequences. Only these addresses will be recorded
 	// in coverage; others will be replaced with the zero address to prevent infinitely growing corpus.
 	initialContractsSet *map[common.Address]struct{}
+
+	// runtimeBytecodeResolver maps constructor-patched runtime code to its compiler template without masking any
+	// byte ranges other than validated immutable references.
+	runtimeBytecodeResolver *RuntimeBytecodeResolver
 }
 
 // coverageTracerCallFrameState tracks state across call frames in the tracer.
@@ -95,10 +100,30 @@ type coverageTracerCallFrameState struct {
 
 // NewCoverageTracer returns a new CoverageTracer.
 func NewCoverageTracer() *CoverageTracer {
+	return newCoverageTracer(nil)
+}
+
+// NewCoverageTracerWithContractDefinitions returns a coverage tracer that can resolve compiler-declared immutable
+// runtime ranges. NewCoverageTracer remains unchanged for callers that do not have compilation definitions.
+func NewCoverageTracerWithContractDefinitions(contractDefinitions contracts.Contracts) (*CoverageTracer, error) {
+	resolver, err := NewRuntimeBytecodeResolver(contractDefinitions)
+	if err != nil {
+		return nil, err
+	}
+	return newCoverageTracer(resolver), nil
+}
+
+// NewCoverageTracerWithRuntimeBytecodeResolver returns a tracer using a shared, read-only runtime resolver.
+func NewCoverageTracerWithRuntimeBytecodeResolver(resolver *RuntimeBytecodeResolver) *CoverageTracer {
+	return newCoverageTracer(resolver)
+}
+
+func newCoverageTracer(runtimeResolver *RuntimeBytecodeResolver) *CoverageTracer {
 	tracer := &CoverageTracer{
-		coverageMaps:    NewCoverageMaps(),
-		callFrameStates: make([]*coverageTracerCallFrameState, 0),
-		codeHashCache:   [2]map[common.Hash]common.Hash{make(map[common.Hash]common.Hash), make(map[common.Hash]common.Hash)},
+		coverageMaps:            NewCoverageMaps(),
+		callFrameStates:         make([]*coverageTracerCallFrameState, 0),
+		codeHashCache:           [2]map[common.Hash]common.Hash{make(map[common.Hash]common.Hash), make(map[common.Hash]common.Hash)},
+		runtimeBytecodeResolver: runtimeResolver,
 	}
 	nativeTracer := &tracers.Tracer{
 		Hooks: &tracing.Hooks{
@@ -258,7 +283,7 @@ func (t *CoverageTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tr
 		} else {
 			lookupHash, cacheHit := t.codeHashCache[cacheArrayKey][gethCodeHash]
 			if !cacheHit {
-				lookupHash = getContractCoverageMapHash(code, isCreate)
+				lookupHash = runtimeCoverageMapHash(code, t.runtimeBytecodeResolver)
 				t.codeHashCache[cacheArrayKey][gethCodeHash] = lookupHash
 			}
 			callFrameState.lookupHash = &lookupHash

@@ -1,7 +1,9 @@
 package compilation
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -26,42 +28,88 @@ type ArtifactHashCache struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ComputeArtifactHash computes a SHA-256 hash of all compiled contract bytecode
-// from the provided compilations. The hash is computed deterministically by sorting
-// contract names before hashing.
+// ComputeArtifactHash computes a SHA-256 hash of all compiled contract bytecode from the provided compilations. It
+// sorts framed contract content so map order, compilation order, and host-specific source paths do not change the hash.
 func ComputeArtifactHash(compilations []types.Compilation) string {
 	hasher := sha256.New()
 
 	// Collect all contract bytecodes with their names for deterministic ordering
 	type contractBytecode struct {
-		name            string
-		initBytecode    []byte
-		runtimeBytecode []byte
+		name                string
+		initBytecode        []byte
+		runtimeBytecode     []byte
+		immutableReferences []types.ImmutableReference
 	}
 	var contracts []contractBytecode
 
 	for _, compilation := range compilations {
 		for _, source := range compilation.SourcePathToArtifact {
 			for name, contract := range source.Contracts {
+				references, err := types.NormalizeImmutableReferences(
+					contract.RuntimeBytecodeImmutableReferences,
+					len(contract.RuntimeBytecode),
+				)
+				if err != nil {
+					// Tracer setup rejects malformed ranges. Retain their supplied order here so a changed malformed
+					// schema still changes the cache key.
+					references = contract.RuntimeBytecodeImmutableReferences
+				}
 				contracts = append(contracts, contractBytecode{
-					name:            name,
-					initBytecode:    contract.InitBytecode,
-					runtimeBytecode: contract.RuntimeBytecode,
+					name:                name,
+					initBytecode:        contract.InitBytecode,
+					runtimeBytecode:     contract.RuntimeBytecode,
+					immutableReferences: references,
 				})
 			}
 		}
 	}
 
-	// Sort by contract name for deterministic hashing
+	// Sort by framed contract content. Host-specific source paths and compilation order must not change the cache key.
 	sort.Slice(contracts, func(i, j int) bool {
-		return contracts[i].name < contracts[j].name
+		left := contracts[i]
+		right := contracts[j]
+		if left.name != right.name {
+			return left.name < right.name
+		}
+		if comparison := bytes.Compare(left.initBytecode, right.initBytecode); comparison != 0 {
+			return comparison < 0
+		}
+		if comparison := bytes.Compare(left.runtimeBytecode, right.runtimeBytecode); comparison != 0 {
+			return comparison < 0
+		}
+		if len(left.immutableReferences) != len(right.immutableReferences) {
+			return len(left.immutableReferences) < len(right.immutableReferences)
+		}
+		for referenceIndex := range left.immutableReferences {
+			if left.immutableReferences[referenceIndex].Start != right.immutableReferences[referenceIndex].Start {
+				return left.immutableReferences[referenceIndex].Start < right.immutableReferences[referenceIndex].Start
+			}
+			if left.immutableReferences[referenceIndex].Length != right.immutableReferences[referenceIndex].Length {
+				return left.immutableReferences[referenceIndex].Length < right.immutableReferences[referenceIndex].Length
+			}
+		}
+		return false
 	})
 
 	// Hash each contract's bytecode
+	writeBytes := func(value []byte) {
+		var encodedLength [8]byte
+		binary.BigEndian.PutUint64(encodedLength[:], uint64(len(value)))
+		hasher.Write(encodedLength[:])
+		hasher.Write(value)
+	}
 	for _, c := range contracts {
-		hasher.Write([]byte(c.name))
-		hasher.Write(c.initBytecode)
-		hasher.Write(c.runtimeBytecode)
+		writeBytes([]byte(c.name))
+		writeBytes(c.initBytecode)
+		writeBytes(c.runtimeBytecode)
+		var encoded [16]byte
+		binary.BigEndian.PutUint64(encoded[:8], uint64(len(c.immutableReferences)))
+		hasher.Write(encoded[:8])
+		for _, reference := range c.immutableReferences {
+			binary.BigEndian.PutUint64(encoded[:8], reference.Start)
+			binary.BigEndian.PutUint64(encoded[8:], reference.Length)
+			hasher.Write(encoded[:])
+		}
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil))

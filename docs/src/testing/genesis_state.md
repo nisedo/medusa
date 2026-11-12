@@ -108,7 +108,7 @@ Medusa auto-detects the format — no configuration flag is required.
 | Format                  | Description                                                                                                |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **Native anvil dump**   | Output of `cast rpc anvil_dumpState`: a JSON-quoted gzip-compressed hex string starting with `"0x1f8b..."` |
-| **Anvil wrapper JSON**  | Decompressed dump with a top-level `"block"` and `"accounts"` field                                        |
+| **Anvil wrapper JSON**  | Decompressed dump with top-level `"accounts"`; an optional `"block"` field is ignored                      |
 | **Plain accounts JSON** | A flat map of `"0xADDR"` → `{balance, nonce, code, storage}`                                               |
 
 ## How Genesis Accounts and Fuzzer Accounts Interact

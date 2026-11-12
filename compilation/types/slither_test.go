@@ -4,65 +4,100 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestRunSlitherCommandIgnoresStderr verifies diagnostics do not contaminate Slither's JSON output.
-func TestRunSlitherCommandIgnoresStderr(t *testing.T) {
-	stdout := `{"success":true,"error":"","results":{"printers":[{"description":"{\"constants_used\":{}}"}]}}`
-	cmd := newSlitherHelperCommand(t, stdout, "compiler warning\n", 0)
+const (
+	validSlitherJSON = `{"success":true,"error":"","results":{"printers":[{"description":"{\"constants_used\":{\"TestContract\":{\"testFuzz(uint256)\":[[{\"type\":\"uint256\",\"value\":\"135\"}]]}}}"}]}}`
+	slitherWarning   = "Warning: Found unknown 'lint_on_build' config"
+)
 
-	out, err := runSlitherCommand(cmd)
+func TestRunSlitherSeparatesStderr(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "slither_results.json")
+	config := &SlitherConfig{
+		UseSlither:     true,
+		CachePath:      cachePath,
+		OverwriteCache: true,
+	}
+
+	results, err := config.runSlither("target", "", slitherHelperCommand("valid-with-warning"))
 	require.NoError(t, err)
-	assert.Equal(t, stdout, string(out))
+	require.Len(t, results.Constants, 1)
+	assert.Equal(t, "uint256", results.Constants[0].Type)
+	assert.Equal(t, "135", results.Constants[0].Value)
 
-	var results SlitherResults
-	require.NoError(t, results.UnmarshalJSON(out))
-	assert.Empty(t, results.Constants)
+	cached, err := os.ReadFile(cachePath)
+	require.NoError(t, err)
+	assert.JSONEq(t, validSlitherJSON, string(cached))
+	assert.NotContains(t, string(cached), slitherWarning)
 }
 
-// TestRunSlitherCommandReportsStderr verifies command diagnostics remain available when Slither fails.
-func TestRunSlitherCommandReportsStderr(t *testing.T) {
-	cmd := newSlitherHelperCommand(t, "", "slither failed to compile\n", 1)
+func TestRunSlitherReportsCommandStderr(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "slither_results.json")
+	config := &SlitherConfig{
+		UseSlither:     true,
+		CachePath:      cachePath,
+		OverwriteCache: true,
+	}
 
-	_, err := runSlitherCommand(cmd)
+	_, err := config.runSlither("target", "", slitherHelperCommand("command-failure"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "slither failed to compile")
+	assert.ErrorContains(t, err, "slither command failed")
+	assert.ErrorContains(t, err, "fatal slither diagnostic")
+
+	_, statErr := os.Stat(cachePath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-// newSlitherHelperCommand creates a cross-platform subprocess that emits controlled output for command tests.
-func newSlitherHelperCommand(t *testing.T, stdout string, stderr string, exitCode int) *exec.Cmd {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSlitherHelperProcess$")
-	cmd.Env = append(os.Environ(),
-		"GO_WANT_SLITHER_HELPER_PROCESS=1",
-		"SLITHER_HELPER_STDOUT="+stdout,
-		"SLITHER_HELPER_STDERR="+stderr,
-		"SLITHER_HELPER_EXIT_CODE="+strconv.Itoa(exitCode),
-	)
-	return cmd
+func TestRunSlitherReportsStderrWithMalformedJSON(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "slither_results.json")
+	config := &SlitherConfig{
+		UseSlither:     true,
+		CachePath:      cachePath,
+		OverwriteCache: true,
+	}
+
+	_, err := config.runSlither("target", "", slitherHelperCommand("malformed-json"))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "could not parse Slither JSON output")
+	assert.ErrorContains(t, err, "malformed JSON diagnostic")
+
+	_, statErr := os.Stat(cachePath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-// TestSlitherHelperProcess emits subprocess output configured by newSlitherHelperCommand.
+func slitherHelperCommand(mode string) slitherCommandFactory {
+	return func(_ string, _ ...string) *exec.Cmd {
+		command := exec.Command(os.Args[0], "-test.run=^TestSlitherHelperProcess$", "--", mode)
+		command.Env = append(os.Environ(), "MEDUSA_SLITHER_HELPER=1")
+		return command
+	}
+}
+
 func TestSlitherHelperProcess(t *testing.T) {
-	// Return immediately when this test is not running as a helper subprocess.
-	if os.Getenv("GO_WANT_SLITHER_HELPER_PROCESS") != "1" {
+	if os.Getenv("MEDUSA_SLITHER_HELPER") != "1" {
 		return
 	}
 
-	// Write the configured values to their respective process streams.
-	_, _ = fmt.Fprint(os.Stdout, os.Getenv("SLITHER_HELPER_STDOUT"))
-	_, _ = fmt.Fprint(os.Stderr, os.Getenv("SLITHER_HELPER_STDERR"))
-
-	// Exit with the configured status so callers can exercise success and failure paths.
-	exitCode, err := strconv.Atoi(os.Getenv("SLITHER_HELPER_EXIT_CODE"))
-	if err != nil {
-		_, _ = fmt.Fprint(os.Stderr, err)
+	mode := os.Args[len(os.Args)-1]
+	switch mode {
+	case "valid-with-warning":
+		_, _ = fmt.Fprint(os.Stdout, validSlitherJSON)
+		_, _ = fmt.Fprintln(os.Stderr, slitherWarning)
+		os.Exit(0)
+	case "command-failure":
+		_, _ = fmt.Fprintln(os.Stderr, "fatal slither diagnostic")
 		os.Exit(2)
+	case "malformed-json":
+		_, _ = fmt.Fprint(os.Stdout, "{not-json")
+		_, _ = fmt.Fprintln(os.Stderr, "malformed JSON diagnostic")
+		os.Exit(0)
+	default:
+		_, _ = fmt.Fprintln(os.Stderr, "unknown helper mode")
+		os.Exit(3)
 	}
-	os.Exit(exitCode)
 }

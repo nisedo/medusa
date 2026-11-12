@@ -93,8 +93,7 @@ interface IStdCheats {
     // Gets the nonce of an account
     function getNonce(address account) external returns (uint64);
 
-    // Sets the nonce of an account
-    // The new nonce must be higher than the current nonce of the account
+    // Sets the nonce of an account to any uint64 value
     function setNonce(address account, uint64 nonce) external;
 
     // Performs a foreign function call via terminal
@@ -170,10 +169,7 @@ contract MyContract {
     IStdCheats cheats = IStdCheats(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     // This is a test function that will set the msg.sender's nonce to the provided input argument
-    function testFunc(uint256 x) public {
-        // Ensure that the input argument is greater than msg.sender's current nonce
-        require(x > cheats.getNonce(msg.sender));
-
+    function testFunc(uint64 x) public {
         // Set sender's nonce
         cheats.setNonce(msg.sender, x);
 

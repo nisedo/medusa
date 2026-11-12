@@ -1,6 +1,7 @@
 # Chain Configuration
 
-The chain configuration defines the parameters for setting up `medusa`'s underlying blockchain.
+The chain configuration defines the parameters for setting up `medusa`'s underlying blockchain. In `medusa.json`, it
+lives at `fuzzing.chainConfig`, inside the `fuzzing` section.
 
 ### `codeSizeCheckDisabled`
 
@@ -17,6 +18,8 @@ The chain configuration defines the parameters for setting up `medusa`'s underly
 - **Default**: `true`
 
 ## Cheatcode Configuration
+
+These options live under `fuzzing.chainConfig.cheatCodes`.
 
 ### `cheatCodesEnabled`
 
@@ -74,6 +77,8 @@ The chain configuration defines the parameters for setting up `medusa`'s underly
 - **Default**: `{}`
 
 ## Fork Configuration
+
+These options live under `fuzzing.chainConfig.forkConfig`.
 
 ### `forkModeEnabled`
 

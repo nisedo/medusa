@@ -274,6 +274,14 @@ func (c *CryticCompilationConfig) Compile() ([]types.Compilation, string, error)
 
 		compilationList = append(compilationList, *compilation)
 	}
+
+	// Foundry's raw artifacts retain compiler-declared immutable references. Crytic-compile's normalized solc export
+	// drops them, so enrich exact runtime templates before returning the compilation data to the fuzzer.
+	err = enrichFoundryImmutableReferences(compilationList, c.Target, c.Args)
+	if err != nil {
+		return nil, "", err
+	}
+
 	// Return the compilationList
 	return compilationList, string(out), nil
 }

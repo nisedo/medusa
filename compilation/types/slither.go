@@ -1,15 +1,16 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/crytic/medusa/logging"
-	"github.com/crytic/medusa/utils"
 )
 
 // SlitherConfig determines whether to run slither and whether and where to cache the results from slither
@@ -51,6 +52,8 @@ type Constant struct {
 	Value string `json:"value"`
 }
 
+type slitherCommandFactory func(name string, args ...string) *exec.Cmd
+
 // validateArgs ensures that the additional arguments provided to slither do not contain the `--ignore-compile`,
 // `--print`, or `--json` arguments. These arguments are already used internally.
 func (s *SlitherConfig) validateArgs() error {
@@ -84,6 +87,14 @@ func (s *SlitherConfig) getArgs(target string) ([]string, error) {
 // cache if we have not written to the cache already. A SlitherResults data structure is returned.
 // The solcVersion parameter, if non-empty, sets the SOLC_VERSION environment variable to prevent race conditions.
 func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherResults, error) {
+	return s.runSlither(target, solcVersion, exec.Command)
+}
+
+func (s *SlitherConfig) runSlither(
+	target string,
+	solcVersion string,
+	commandFactory slitherCommandFactory,
+) (*SlitherResults, error) {
 	// Return early if we do not want to run slither
 	if !s.UseSlither {
 		return nil, nil
@@ -93,6 +104,7 @@ func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherR
 	var haveCachedResults bool
 	var out []byte
 	var err error
+	var slitherStderr string
 	if s.CachePath != "" && !s.OverwriteCache {
 		// Check to see if the file exists in the first place.
 		// If not, we will re-run slither
@@ -123,7 +135,7 @@ func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherR
 		}
 
 		// Log the command
-		cmd := exec.Command("slither", args...)
+		cmd := commandFactory("slither", args...)
 		logging.GlobalLogger.Info("Running Slither:\n", cmd.String())
 
 		// Set SOLC_VERSION environment variable if provided
@@ -133,9 +145,12 @@ func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherR
 
 		// Run slither while keeping diagnostics separate from the JSON output.
 		start := time.Now()
-		out, err = runSlitherCommand(cmd)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err = cmd.Output()
+		slitherStderr = strings.TrimSpace(stderr.String())
 		if err != nil {
-			return nil, err
+			return nil, formatSlitherError("slither command failed", err, slitherStderr)
 		}
 		logging.GlobalLogger.Info("Finished running Slither in ", time.Since(start).Round(time.Second))
 	}
@@ -144,7 +159,7 @@ func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherR
 	var slitherResults SlitherResults
 	err = json.Unmarshal(out, &slitherResults)
 	if err != nil {
-		return nil, err
+		return nil, formatSlitherError("could not parse Slither JSON output", err, slitherStderr)
 	}
 
 	// Cache the results if we have not cached before. We have also already checked that the output is well-formed
@@ -167,13 +182,11 @@ func (s *SlitherConfig) RunSlither(target string, solcVersion string) (*SlitherR
 	return &slitherResults, nil
 }
 
-// runSlitherCommand runs Slither and returns only stdout so stderr diagnostics cannot corrupt its JSON output.
-func runSlitherCommand(cmd *exec.Cmd) ([]byte, error) {
-	stdout, _, combined, err := utils.RunCommandWithOutputAndError(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("error while executing slither: %w\n\nCommand Output:\n%s", err, string(combined))
+func formatSlitherError(message string, err error, stderr string) error {
+	if stderr == "" {
+		return fmt.Errorf("%s: %w", message, err)
 	}
-	return stdout, nil
+	return fmt.Errorf("%s: %w\nslither stderr:\n%s", message, err, stderr)
 }
 
 // UnmarshalJSON unmarshals the slither output into a SlitherResults type

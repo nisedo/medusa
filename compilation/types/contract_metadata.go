@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/binary"
 
 	"github.com/fxamacker/cbor"
 )
@@ -11,8 +12,8 @@ import (
 // Reference: https://docs.soliditylang.org/en/v0.8.16/metadata.html
 type ContractMetadata map[string]any
 
-// metadataHashPrefixes defines patterns to use in search for CBOR-encoded contract metadata appended to the end of
-// bytecode.
+// metadataHashPrefixes defines patterns used by RemoveContractMetadata to find metadata inside init bytecode, where
+// constructor arguments may follow the compiler-appended metadata and its length footer.
 var metadataHashPrefixes = [][]byte{
 	{0xa1, 0x65, 98, 122, 122, 114, 48, 0x58, 0x20},  // a1 65 "bzzr0" 0x58 0x20 (solc <= 0.5.8)
 	{0xa2, 0x65, 98, 122, 122, 114, 48, 0x58, 0x20},  // a2 65 "bzzr0" 0x58 0x20 (solc >= 0.5.9)
@@ -30,21 +31,26 @@ var byteCodeHashMetadataKeys = [...]string{
 // ExtractContractMetadata extracts contract metadata from provided byte code and returns it. If contract metadata
 // could not be extracted, nil is returned.
 func ExtractContractMetadata(bytecode []byte) *ContractMetadata {
-	// Try matching each metadata hash prefix in the file. Metadata is appended to the end of the file.
-	for _, metadataHashPrefix := range metadataHashPrefixes {
-		metadataOffset := bytes.LastIndex(bytecode, metadataHashPrefix[:])
-
-		// If we found a match, decode the embedded metadata and return it.
-		if metadataOffset != -1 {
-			var metadata ContractMetadata
-			err := cbor.Unmarshal(bytecode[metadataOffset:], &metadata)
-			if err != nil {
-				continue
-			}
-			return &metadata
-		}
+	if len(bytecode) < 2 {
+		return nil
 	}
-	return nil
+
+	metadataEnd := len(bytecode) - 2
+	metadataLength := int(binary.BigEndian.Uint16(bytecode[metadataEnd:]))
+	if metadataLength == 0 || metadataLength > metadataEnd {
+		return nil
+	}
+	metadataBytes := bytecode[metadataEnd-metadataLength : metadataEnd]
+	rest, err := cbor.Valid(metadataBytes)
+	if err != nil || len(rest) != 0 {
+		return nil
+	}
+
+	var metadata ContractMetadata
+	if err := cbor.Unmarshal(metadataBytes, &metadata); err != nil {
+		return nil
+	}
+	return &metadata
 }
 
 // RemoveContractMetadata takes bytecode and attempts to detect contract metadata within it, splitting it where the
