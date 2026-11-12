@@ -130,7 +130,7 @@ var integerMutationMethods = []func(*MutationalValueGenerator, *big.Int, ...*big
 		// Divide a random input
 		divisor := inputs[g.randomProvider.Intn(len(inputs))]
 		if divisor.Cmp(big.NewInt(0)) == 0 {
-			return big.NewInt(1) // leave unchanged if divisor was zero (would've caused panic)
+			return big.NewInt(0).Set(x) // leave unchanged if divisor was zero (would've caused panic)
 		}
 		return big.NewInt(0).Div(x, divisor)
 	},
@@ -334,8 +334,8 @@ var stringMutationMethods = []func(*MutationalValueGenerator, string, ...string)
 		}
 
 		// Otherwise we insert it into a random position in the string.
-		i := g.randomProvider.Intn(len(s))
-		return s[:i] + c + s[i+1:]
+		i := g.randomProvider.Intn(len(s) + 1)
+		return s[:i] + c + s[i:]
 	},
 	// Remove a random character
 	func(g *MutationalValueGenerator, s string, inputs ...string) string {

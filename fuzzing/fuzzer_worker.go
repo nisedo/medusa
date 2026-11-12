@@ -323,17 +323,20 @@ func (fw *FuzzerWorker) bindCorpusElement(currentIndex int) error {
 // sequence is nil, a call message will be created in its place, targeting a state changing method of a contract
 // deployed in the Chain. Note that this function also replays the corpus call sequences before entering the main fuzzing loop.
 // Returns any requests for call sequence shrinking or an error if one occurs.
-func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, error) {
+func (fw *FuzzerWorker) testNextCallSequence() (_ []ShrinkCallSequenceRequest, err error) {
 	// We will make a copy of the worker's base value set so that we can rollback to it at the end of the call sequence
 	originalValueSet := fw.valueSet.Clone()
 
 	// After testing the sequence, we'll want to rollback changes to reset our testing state.
-	var err error
 	defer func() {
-		// Reset the value set back to the original
-		fw.valueSet = originalValueSet
-		if err == nil {
-			err = fw.chain.RevertToBlockIndex(fw.testingBaseBlockIndex)
+		// Reset the value set back to the original. This restores the contents in place because the value generator
+		// and shrinking value mutator hold the same pointer.
+		*fw.valueSet = *originalValueSet
+
+		// Always revert, even if the sequence failed part-way (e.g. a disabled corpus element), so the next sequence
+		// starts from the testing base.
+		if revertErr := fw.chain.RevertToBlockIndex(fw.testingBaseBlockIndex); err == nil {
+			err = revertErr
 		}
 	}()
 
@@ -517,7 +520,7 @@ func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, err
 
 	// We don't want to save shrink results from corpus sequences since we already did.
 	if !isNewSequence {
-		for i := 0; i < len(fw.shrinkCallSequenceRequests); i++ {
+		for i := range shrinkCallSequenceRequests {
 			shrinkCallSequenceRequests[i].RecordResultInCorpus = false
 		}
 	}
@@ -529,9 +532,8 @@ func (fw *FuzzerWorker) testNextCallSequence() ([]ShrinkCallSequenceRequest, err
 // testShrunkenCallSequence tests a provided shrunken call sequence to verify it continues to satisfy the provided
 // shrink verifier. Chain state is reverted to the testing base prior to returning.
 // Returns a boolean indicating if the shrunken call sequence is valid for a given shrink request, or an error if one occurred.
-func (fw *FuzzerWorker) testShrunkenCallSequence(possibleShrunkSequence calls.CallSequence, shrinkRequest ShrinkCallSequenceRequest) (bool, error) {
+func (fw *FuzzerWorker) testShrunkenCallSequence(possibleShrunkSequence calls.CallSequence, shrinkRequest ShrinkCallSequenceRequest) (_ bool, err error) {
 	// After testing the sequence, we'll want to rollback changes to reset our testing state.
-	var err error
 	defer func() {
 		if err == nil {
 			err = fw.chain.RevertToBlockIndex(fw.testingBaseBlockIndex)
@@ -640,11 +642,8 @@ func (fw *FuzzerWorker) shrinkCallSequence(shrinkRequest ShrinkCallSequenceReque
 
 		// Step 3: Try one random shrinking strategy (50/50 choice)
 		var shrunkSequence calls.CallSequence
-		if fw.randomProvider.Float32() < 0.5 {
-			// Strategy A: Remove one random transaction
-			if len(cleaned) <= 1 {
-				break // Can't remove anymore
-			}
+		if fw.randomProvider.Float32() < 0.5 && len(cleaned) > 1 {
+			// Strategy A: Remove one random transaction (not possible for a single-call sequence)
 			shrunkSequence = shortenSequence(cleaned, fw.randomProvider)
 		} else {
 			// Strategy B: Shrink all transactions (for each tx, pick one random aspect to shrink)
@@ -719,10 +718,6 @@ func (fw *FuzzerWorker) run(baseTestChain *chain.TestChain) (bool, error) {
 		initializedChain.Events.ContractDeploymentAddedEventEmitter.Subscribe(fw.onChainContractDeploymentAddedEvent)
 		initializedChain.Events.ContractDeploymentRemovedEventEmitter.Subscribe(fw.onChainContractDeploymentRemovedEvent)
 
-		if err != nil {
-			return fmt.Errorf("error returned by an event handler when emitting a worker chain created event: %v", err)
-		}
-
 		// If we have coverage-guided fuzzing enabled, create a tracer to collect coverage and connect it to the chain.
 		if fw.fuzzer.config.Fuzzing.CoverageEnabled {
 			fw.coverageTracer = coverage.NewCoverageTracerWithRuntimeBytecodeResolver(fw.fuzzer.coverageRuntimeBytecodeResolver)
@@ -733,10 +728,13 @@ func (fw *FuzzerWorker) run(baseTestChain *chain.TestChain) (bool, error) {
 		initializedChain.Labels = maps.Clone(baseTestChain.Labels)
 
 		// Emit an event indicating the worker has created its chain.
-		err = fw.Events.FuzzerWorkerChainCreated.Publish(FuzzerWorkerChainCreatedEvent{
+		err := fw.Events.FuzzerWorkerChainCreated.Publish(FuzzerWorkerChainCreatedEvent{
 			Worker: fw,
 			Chain:  initializedChain,
 		})
+		if err != nil {
+			return fmt.Errorf("error returned by an event handler when emitting a worker chain created event: %v", err)
+		}
 		return nil
 	})
 

@@ -120,7 +120,6 @@ func (s *SourceAnalysis) filterExcludedFiles(exclusionPatterns []string) {
 // GenerateLCOVReport generates an LCOV report from the source analysis.
 // The spec of the format is here https://github.com/linux-test-project/lcov/blob/07a1127c2b4390abf4a516e9763fb28a956a9ce4/man/geninfo.1#L989
 func (s *SourceAnalysis) GenerateLCOVReport() string {
-	var linesHit, linesInstrumented int
 	var buffer bytes.Buffer
 	buffer.WriteString("TN:\n")
 	for _, file := range s.SortedFiles() {
@@ -131,11 +130,9 @@ func (s *SourceAnalysis) GenerateLCOVReport() string {
 				// DA:<line number>,<execution count>
 				if line.IsCovered {
 					fmt.Fprintf(&buffer, "DA:%d,%d\n", idx+1, line.SuccessHitCount)
-					linesHit++
 				} else {
 					fmt.Fprintf(&buffer, "DA:%d,%d\n", idx+1, 0)
 				}
-				linesInstrumented++
 			}
 		}
 		// FN:<line number>,<function name>
@@ -153,7 +150,7 @@ func (s *SourceAnalysis) GenerateLCOVReport() string {
 
 			// We are treating any line hit in the definition as a hit for the function.
 			hit := 0
-			for i := startLine; i < endLine; i++ {
+			for i := startLine; i <= endLine && i <= len(file.Lines); i++ {
 				// index is zero based, line numbers are 1 based
 				if file.Lines[i-1].IsActive && file.Lines[i-1].IsCovered {
 					hit = 1

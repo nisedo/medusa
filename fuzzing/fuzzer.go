@@ -740,6 +740,13 @@ func chainSetupFromCompilations(fuzzer *Fuzzer, testChain *chain.TestChain) (*ex
 		}
 	}
 
+	// Register every compiled contract so cheatcodes such as vm.getCode can resolve contracts that are not deployed.
+	for _, contract := range fuzzer.contractDefinitions {
+		if _, exists := testChain.CompiledContracts[contract.Name()]; !exists {
+			testChain.CompiledContracts[contract.Name()] = contract.CompiledContract()
+		}
+	}
+
 	deployedContractAddr := make(map[string]common.Address)
 	// Loop for all contracts to deploy
 	for i, contractName := range contractsToDeploy {
@@ -1299,7 +1306,7 @@ func (f *Fuzzer) Terminate() {
 func (f *Fuzzer) monitorCorpusInitialization() {
 	// There is nothing to do if there are no corpus elements or unexecuted call sequences
 	totalSequences, totalTestResults := f.corpus.CallSequenceEntryCount()
-	if !f.corpus.InitializingCorpus() || totalSequences == 0 || totalTestResults == 0 {
+	if !f.corpus.InitializingCorpus() || (totalSequences == 0 && totalTestResults == 0) {
 		return
 	}
 
@@ -1316,7 +1323,7 @@ func (f *Fuzzer) monitorCorpusInitialization() {
 		totalSequences, totalTestResults := f.corpus.CallSequenceEntryCount()
 		totalCorpusEntries := totalSequences + totalTestResults
 		validSequences := f.corpus.ValidCallSequences()
-		invalidSequences := int(totalSequences - int(validSequences))
+		invalidSequences := totalCorpusEntries - int(validSequences)
 
 		// Log how much time it took to initialize the corpus
 		f.logger.Info("Finished running call sequences in the corpus in ", time.Since(startTime).Round(time.Second))

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/crytic/medusa/compilation/types"
@@ -16,6 +15,7 @@ import (
 	"github.com/crytic/medusa/logging"
 	"github.com/crytic/medusa/utils"
 	"github.com/rs/zerolog"
+	"github.com/shopspring/decimal"
 )
 
 type ProjectConfig struct {
@@ -151,14 +151,15 @@ func (cb *ContractBalance) UnmarshalJSON(data []byte) error {
 
 	// Scientific notation handling
 	if strings.ContainsAny(s, "eE") {
-		f, err := strconv.ParseFloat(s, 64)
+		// Parse as an arbitrary-precision decimal; a float64 loses precision above 2^53 (e.g. "1e23").
+		d, err := decimal.NewFromString(s)
 		if err != nil {
 			return fmt.Errorf("error parsing scientific notation while unmarshaling contract balance: %w", err)
 		}
-		plainStr := strconv.FormatFloat(f, 'f', 0, 64)
-		if _, ok := cb.SetString(plainStr, 10); !ok {
+		if !d.IsInteger() {
 			return fmt.Errorf("invalid format for contract balance (scientific notation) while unmarshaling contract balance: %s", s)
 		}
+		cb.Set(d.BigInt())
 		return nil
 	}
 

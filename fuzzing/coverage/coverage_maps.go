@@ -49,11 +49,16 @@ func (cm *CoverageMaps) Reset() {
 
 // Equal checks whether two coverage maps are the same. Equality is determined if the keys and values are all the same.
 func (cm *CoverageMaps) Equal(b *CoverageMaps) bool {
+	// Both must track the same number of code hashes
+	if len(cm.maps) != len(b.maps) {
+		return false
+	}
+
 	// Iterate through all maps
 	for codeHash, mapsByAddressA := range cm.maps {
 		mapsByAddressB, ok := b.maps[codeHash]
-		// Hash is not in b - we're done
-		if !ok {
+		// Hash is not in b, or it tracks a different number of addresses - we're done
+		if !ok || len(mapsByAddressA) != len(mapsByAddressB) {
 			return false
 		}
 		for codeAddress, coverageMapA := range mapsByAddressA {
@@ -221,7 +226,7 @@ func (cm *CoverageMaps) Update(coverageMaps *CoverageMaps) (bool, error) {
 				}
 			} else {
 				mapsByAddress[codeAddress] = coverageMapToMerge
-				coverageChanged = coverageMapToMerge.executedMarkers != nil
+				coverageChanged = coverageChanged || coverageMapToMerge.executedMarkers != nil
 			}
 		}
 	}

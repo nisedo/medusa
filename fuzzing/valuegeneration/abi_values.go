@@ -847,6 +847,9 @@ func decodeJSONArgument(inputType *abi.Type, value any, deployedContractAddr map
 			return nil, fmt.Errorf("invalid JSON value, array expected")
 		}
 		// This needs to be an array type, not a slice. But arrays can't be dynamically defined without reflection.
+		if len(arr) != inputType.Size {
+			return nil, fmt.Errorf("invalid JSON value, array of length %d expected, got %d", inputType.Size, len(arr))
+		}
 		array := reflect.Indirect(reflect.New(inputType.GetType()))
 		for i, e := range arr {
 			ele, err := decodeJSONArgument(inputType.Elem, e, deployedContractAddr)
@@ -886,7 +889,7 @@ func decodeJSONArgument(inputType *abi.Type, value any, deployedContractAddr map
 				return nil, fmt.Errorf("value for struct field %s not provided", fieldName)
 			}
 			eleValue, err := decodeJSONArgument(eleType, fieldValue, deployedContractAddr)
-			if !ok {
+			if err != nil {
 				return nil, fmt.Errorf("cannot parse struct field %s, error: %s", fieldName, err)
 			}
 			reflectionutils.SetField(field, eleValue)
