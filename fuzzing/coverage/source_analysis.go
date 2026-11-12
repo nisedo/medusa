@@ -139,24 +139,12 @@ func (s *SourceAnalysis) GenerateLCOVReport() string {
 		// FN:<line number>,<function name>
 		// FNDA:<execution count>,<function name>
 		for _, fn := range file.Functions {
-			byteStart := types.GetSrcMapStart(fn.Src)
-			length := types.GetSrcMapLength(fn.Src)
-
-			startLine := sort.Search(len(file.CumulativeOffsetByLine), func(i int) bool {
-				return file.CumulativeOffsetByLine[i] > byteStart
-			})
-			endLine := sort.Search(len(file.CumulativeOffsetByLine), func(i int) bool {
-				return file.CumulativeOffsetByLine[i] > byteStart+length
-			})
-
 			// We are treating any line hit in the definition as a hit for the function.
+			lines := file.functionLines(fn)
+			startLine := lines.Start
 			hit := 0
-			for i := startLine; i <= endLine && i <= len(file.Lines); i++ {
-				// index is zero based, line numbers are 1 based
-				if file.Lines[i-1].IsActive && file.Lines[i-1].IsCovered {
-					hit = 1
-				}
-
+			if file.anyLineCovered(lines, false) {
+				hit = 1
 			}
 
 			// TODO: handle fallback, receive, and constructor

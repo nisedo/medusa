@@ -89,6 +89,17 @@ The `--corpus-dir` flag allows you to set the path for the corpus directory (equ
 medusa fuzz --corpus-dir corpus
 ```
 
+### `--results-file`
+
+The `--results-file` flag allows you to set the path of the JSON [results file](../testing/reporting.md#results-file)
+written when the campaign ends (equivalent to
+[`fuzzing.resultsFile`](../project_configuration/fuzzing_config.md#resultsfile))
+
+```shell
+# Write a machine-readable report of the campaign
+medusa fuzz --results-file results.json
+```
+
 ### `--senders`
 
 The `--senders` flag allows you to update `medusa`'s senders (equivalent to

@@ -99,6 +99,12 @@ type Fuzzer struct {
 	testCases []TestCase
 	// testCasesLock provides thread-synchronization to avoid race conditions when accessing or updating test cases.
 	testCasesLock sync.Mutex
+
+	// campaign tracks when the current fuzzing campaign started and how it ended, for reporting.
+	campaign campaignState
+	// campaignLock guards campaign, and the assignment of metrics and corpus when a campaign starts, so a report
+	// can be requested from another goroutine at any time.
+	campaignLock sync.Mutex
 	// testCasesFinished describes test cases already reported as having been finalized.
 	testCasesFinished map[string]TestCase
 
@@ -1121,9 +1127,15 @@ func (f *Fuzzer) spawnWorkersLoop(baseTestChain *chain.TestChain) error {
 // Start begins a fuzzing operation on the provided project configuration. This operation will not return until an error
 // is encountered or the fuzzing operation has completed. Its execution can be cancelled using the Stop method.
 // Returns an error if one is encountered.
-func (f *Fuzzer) Start() error {
-	// Define our variable to catch errors
-	var err error
+func (f *Fuzzer) Start() (err error) {
+	// Record the start of the campaign. However Start returns, record how the campaign ended and write the
+	// results file, so tools reading it always find one.
+	var sourceAnalysis *coverage.SourceAnalysis
+	f.beginCampaign()
+	defer func() {
+		f.endCampaign(err)
+		f.writeResultsFile(sourceAnalysis)
+	}()
 
 	// While we're fuzzing, we'll want to have an initialized random provider.
 	f.randomProvider = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -1142,7 +1154,10 @@ func (f *Fuzzer) Start() error {
 	f.revertReporter.Start(f.ctx)
 
 	// Initialize our metrics and valueGenerator.
-	f.metrics = newFuzzerMetrics(f.config.Fuzzing.Workers, f.revertReporter.RevertMetricsCh)
+	metrics := newFuzzerMetrics(f.config.Fuzzing.Workers, f.revertReporter.RevertMetricsCh)
+	f.campaignLock.Lock()
+	f.metrics = metrics
+	f.campaignLock.Unlock()
 
 	// Initialize our test cases and providers
 	f.testCasesLock.Lock()
@@ -1177,11 +1192,14 @@ func (f *Fuzzer) Start() error {
 
 	// Create and initialize the corpus
 	f.logger.Info("Creating corpus...")
-	f.corpus, err = corpus.NewCorpus(f.config.Fuzzing.CorpusDirectory)
+	campaignCorpus, err := corpus.NewCorpus(f.config.Fuzzing.CorpusDirectory)
 	if err != nil {
 		f.logger.Error("Failed to create the corpus", err)
 		return err
 	}
+	f.campaignLock.Lock()
+	f.corpus = campaignCorpus
+	f.campaignLock.Unlock()
 	f.corpus.SetRuntimeBytecodeResolver(f.coverageRuntimeBytecodeResolver)
 	err = f.corpus.Initialize(baseTestChain, f.contractDefinitions)
 	if err != nil {
@@ -1263,9 +1281,12 @@ func (f *Fuzzer) Start() error {
 			coverageReportDir = filepath.Join(f.config.Fuzzing.CorpusDirectory, "coverage")
 		}
 
-		sourceAnalysis, err := coverage.AnalyzeSourceCoverage(f.compilations, f.corpus.CoverageMaps(), f.config.Fuzzing.CoverageExclusions, f.logger)
+		// The analysis is kept for the results file, so it is not computed twice.
+		var err error
+		sourceAnalysis, err = coverage.AnalyzeSourceCoverage(f.compilations, f.corpus.CoverageMaps(), f.config.Fuzzing.CoverageExclusions, f.logger)
 
 		if err != nil {
+			sourceAnalysis = nil
 			f.logger.Error("Failed to analyze source coverage", err)
 		} else {
 			var path string

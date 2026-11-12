@@ -9,6 +9,7 @@
     "maxAssumeRejects": 65536,
     "pruneFrequency": 5,
     "corpusDirectory": "",
+    "resultsFile": "",
     "coverageEnabled": true,
     "coverageFormats": ["html", "lcov"],
     "coverageExclusions": ["lib/forge-std/**"],

@@ -52,6 +52,7 @@ func GetDefaultProjectConfig(platform string) (*ProjectConfig, error) {
 			PredeployedContracts:    map[string]string{},
 			ConstructorArgs:         map[string]map[string]any{},
 			CorpusDirectory:         "",
+			ResultsFile:             "",
 			CoverageEnabled:         true,
 			CoverageFormats:         []string{"html", "lcov"},
 			CoverageExclusions:      []string{"lib/forge-std/**"},

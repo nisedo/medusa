@@ -77,6 +77,15 @@ The fuzzing configuration defines the parameters for the fuzzing campaign.
   left as an empty string (which it is by default), no corpus will be loaded from disk and stored to disk.
 - **Default**: ""
 
+### `resultsFile`
+
+- **Type**: String
+- **Description**: The path of a JSON file to write the [results file](./../testing/reporting.md#results-file) to
+  when the campaign ends. It describes the outcome, metrics, test results with execution traces, and coverage, for
+  CI pipelines and other tools. It is written however the campaign ends, including on an error. If left as an empty
+  string (which it is by default), no results file is written.
+- **Default**: ""
+
 ### `coverageFormats`
 
 - **Type**: [String] (e.g. `["lcov"]`)

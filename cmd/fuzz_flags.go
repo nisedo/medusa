@@ -50,6 +50,10 @@ func addFuzzFlags() error {
 	fuzzCmd.Flags().String("corpus-dir", "",
 		fmt.Sprintf("directory path for corpus items and coverage reports (unless a config file is provided, default is %q)", defaultConfig.Fuzzing.CorpusDirectory))
 
+	// Results file
+	fuzzCmd.Flags().String("results-file", "",
+		"file path to write a machine-readable JSON report of the campaign to")
+
 	// Senders
 	fuzzCmd.Flags().StringSlice("senders", []string{},
 		"account address(es) used to send state-changing txns")
@@ -147,6 +151,14 @@ func updateProjectConfigWithFuzzFlags(cmd *cobra.Command, projectConfig *config.
 	// Update corpus directory
 	if cmd.Flags().Changed("corpus-dir") {
 		projectConfig.Fuzzing.CorpusDirectory, err = cmd.Flags().GetString("corpus-dir")
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update results file
+	if cmd.Flags().Changed("results-file") {
+		projectConfig.Fuzzing.ResultsFile, err = cmd.Flags().GetString("results-file")
 		if err != nil {
 			return err
 		}
