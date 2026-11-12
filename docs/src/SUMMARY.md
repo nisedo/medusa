@@ -43,6 +43,7 @@
 
 - [Cheatcodes](cheatcodes/cheatcodes_overview.md)
   - [assume](./cheatcodes/assume.md)
+  - [expectRevert](./cheatcodes/expect_revert.md)
   - [warp](./cheatcodes/warp.md)
   - [roll](./cheatcodes/roll.md)
   - [fee](./cheatcodes/fee.md)

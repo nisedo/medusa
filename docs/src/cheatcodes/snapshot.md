@@ -7,6 +7,14 @@ snapshot.
 
 On the flipside, the `revertTo` cheatcode will revert the EVM state back based on the provided identifier.
 
+Snapshot identifiers are valid only within the transaction that created them. `revertTo` returns `false` for an
+unknown or expired identifier, or when the active call stack contains a frame that did not exist at the snapshot.
+A successful restore consumes that snapshot and newer snapshots, and restores cheatcode-managed state and deployment
+metadata along with EVM state.
+
+Restoring a snapshot does not cancel a pending `expectRevert`. If an expectation has already failed, `revertTo` returns
+`false` and cannot hide the failure.
+
 ## Example
 
 ```solidity

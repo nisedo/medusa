@@ -2,9 +2,11 @@
 
 ## Description
 
-The `prank` cheatcode will set the `msg.sender` for _only the next call_ to the specified input address. Note that,
-contrary to [`prank` in Foundry](https://book.getfoundry.sh/cheatcodes/prank#description), calling the cheatcode contract will count as a
-valid "next call"
+The `prank` cheatcode will set the `msg.sender` for _only the next call_ to the specified input address.
+Calls to the cheatcode and console addresses do not consume the prank.
+
+For a pranked `CALL` that sends ETH, the value is deducted from the pranked sender's balance.
+The pranked sender must have enough ETH to fund the transfer.
 
 ## Example
 

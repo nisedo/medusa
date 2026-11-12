@@ -15,6 +15,22 @@ interface IStdCheats {
     // Reject the current fuzz input unless the condition is true
     function assume(bool condition) external;
 
+    // Require the next external call to revert
+    function expectRevert() external;
+    function expectRevert(bytes4 revertData) external;
+    function expectRevert(bytes calldata revertData) external;
+    function expectRevert(address reverter) external;
+    function expectRevert(bytes4 revertData, address reverter) external;
+    function expectRevert(bytes calldata revertData, address reverter) external;
+    function expectRevert(uint64 count) external;
+    function expectRevert(bytes4 revertData, uint64 count) external;
+    function expectRevert(bytes calldata revertData, uint64 count) external;
+    function expectRevert(address reverter, uint64 count) external;
+    function expectRevert(bytes4 revertData, address reverter, uint64 count) external;
+    function expectRevert(bytes calldata revertData, address reverter, uint64 count) external;
+    function expectPartialRevert(bytes4 revertData) external;
+    function expectPartialRevert(bytes4 revertData, address reverter) external;
+
     // Set block.timestamp
     function warp(uint256) external;
 

@@ -5,6 +5,9 @@
 The `startPrank` cheatcode will set the `msg.sender` for all subsequent calls until `stopPrank` is called. This is in
 contrast to [`prank`](./prank.md) where `prank` only applies to the _next_ message call.
 
+For a pranked `CALL` that sends ETH, the value is deducted from the pranked sender's balance.
+The pranked sender must have enough ETH to fund the transfer.
+
 ## Example
 
 ```solidity
