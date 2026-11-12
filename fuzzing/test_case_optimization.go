@@ -15,32 +15,18 @@ import (
 
 // OptimizationTestCase describes a test being run by a OptimizationTestCaseProvider.
 type OptimizationTestCase struct {
-	// status describes the status of the test case
-	status TestCaseStatus
+	// testCaseState holds the status, the call sequence that maximized the value, and the execution trace of the
+	// optimization test after that call sequence. Its lock also guards value and shrinkCallSequenceRequest.
+	testCaseState
 	// targetContract describes the target contract where the test case was found
 	targetContract *contracts.Contract
 	// targetMethod describes the target method for the test case
 	targetMethod abi.Method
-	// callSequence describes the call sequence that maximized the value
-	callSequence *calls.CallSequence
 	// shrinkCallSequenceRequest is the shrink request that will be executed to identify the optimal call sequence
 	// that maximizes the value
 	shrinkCallSequenceRequest *ShrinkCallSequenceRequest
 	// value is used to store the maximum value returned by the test method
 	value *big.Int
-	// optimizationTestTrace describes the execution trace when running the callSequence
-	optimizationTestTrace *executiontracer.ExecutionTrace
-}
-
-// Status describes the TestCaseStatus used to define the current state of the test.
-func (t *OptimizationTestCase) Status() TestCaseStatus {
-	return t.status
-}
-
-// CallSequence describes the calls.CallSequence of calls sent to the EVM which resulted in this TestCase result.
-// This should be nil if the result is not related to the CallSequence.
-func (t *OptimizationTestCase) CallSequence() *calls.CallSequence {
-	return t.callSequence
 }
 
 // Name describes the name of the test case.
@@ -52,41 +38,33 @@ func (t *OptimizationTestCase) Name() string {
 // console or file logging.
 func (t *OptimizationTestCase) LogMessage() *logging.LogBuffer {
 	buffer := logging.NewLogBuffer()
+	status, callSequence, trace := t.snapshot()
+	value := t.Value()
 
-	// If the test case never started, just log the status and name of the test case
-	if t.Status() == TestCaseStatusNotStarted {
-		buffer.Append(colors.GreenBold, fmt.Sprintf("[%s] ", t.Status()), colors.Bold, t.Name(), colors.Reset, "\n")
-		return buffer
-	}
-
-	// We are now guaranteed to handle only test cases in the running state
-	// If we weren't able to find a value greater than the minimum, the test case has failed
-	minInt, _ := new(big.Int).SetString(MIN_INT, 16)
-	if t.Value().Cmp(minInt) == 0 {
-		t.status = TestCaseStatusFailed
-	} else {
-		t.status = TestCaseStatusPassed
-	}
-	buffer.Append(colors.GreenBold, fmt.Sprintf("[%s] ", t.Status()), colors.Bold, t.Name(), colors.Reset, "\n")
-
-	// Notify the user we failed to find anything
-	if t.status == TestCaseStatusFailed {
+	// A failed test case never found a value greater than the minimum, so there is no call sequence or trace to show.
+	if status == TestCaseStatusFailed {
+		buffer.Append(colors.RedBold, fmt.Sprintf("[%s] ", status), colors.Bold, t.Name(), colors.Reset, "\n")
 		buffer.Append(fmt.Sprintf("Test for method \"%s.%s\" failed to identify a value greater than the minimum"+
 			" value of an int256: ", t.targetContract.Name(), t.targetMethod.Sig))
-		// We do not have a call sequence or execution trace for this test, so return early
 		return buffer
 	}
 
-	// We are guaranteed to now handle only successful test cases
+	// If no call sequence has produced a value yet, just log the status and name of the test case.
+	buffer.Append(colors.GreenBold, fmt.Sprintf("[%s] ", status), colors.Bold, t.Name(), colors.Reset, "\n")
+	if callSequence == nil {
+		return buffer
+	}
+
+	// Otherwise report the maximum value found so far and the call sequence which produced it.
 	buffer.Append(fmt.Sprintf("Test for method \"%s.%s\" resulted in the maximum value: ", t.targetContract.Name(), t.targetMethod.Sig))
-	buffer.Append(colors.Bold, t.value, colors.Reset, "\n")
+	buffer.Append(colors.Bold, value, colors.Reset, "\n")
 	buffer.Append(colors.Bold, "[Call Sequence]", colors.Reset, "\n")
-	buffer.Append(t.CallSequence().Log().Elements()...)
+	buffer.Append(callSequence.Log().Elements()...)
 
 	// If an execution trace is attached then add it to the message
-	if t.optimizationTestTrace != nil {
+	if trace != nil {
 		buffer.Append(colors.Bold, "[Optimization Test Execution Trace]", colors.Reset, "\n")
-		buffer.Append(t.optimizationTestTrace.Log().Elements()...)
+		buffer.Append(trace.Log().Elements()...)
 	}
 	return buffer
 }
@@ -104,5 +82,66 @@ func (t *OptimizationTestCase) ID() string {
 
 // Value obtains the maximum value returned by the test method found till now
 func (t *OptimizationTestCase) Value() *big.Int {
-	return t.value
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return new(big.Int).Set(t.value)
+}
+
+// exceedsValue indicates whether the provided value is greater than the maximum value found till now.
+func (t *OptimizationTestCase) exceedsValue(value *big.Int) bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return value.Cmp(t.value) > 0
+}
+
+// recordHigherValue records a new maximum value, the call sequence which produced it and the request to shrink that
+// call sequence. Nothing is recorded if another worker recorded an equal or higher value in the meantime.
+// Returns true if the value was recorded.
+func (t *OptimizationTestCase) recordHigherValue(value *big.Int, callSequence calls.CallSequence, shrinkRequest *ShrinkCallSequenceRequest) bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if value.Cmp(t.value) <= 0 {
+		return false
+	}
+	t.value = new(big.Int).Set(value)
+	t.callSequence = &callSequence
+	t.trace = nil
+	t.shrinkCallSequenceRequest = shrinkRequest
+	return true
+}
+
+// recordShrunkSequence records the shrunken call sequence, the execution trace of the optimization test after it, and
+// the value it produced, which may be higher than the value of the sequence that was shrunk.
+func (t *OptimizationTestCase) recordShrunkSequence(callSequence calls.CallSequence, trace *executiontracer.ExecutionTrace, value *big.Int) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.callSequence = &callSequence
+	t.trace = trace
+	if value.Cmp(t.value) > 0 {
+		t.value = new(big.Int).Set(value)
+	}
+}
+
+// takeShrinkRequest returns the pending shrink request, if any, and clears it so it is only handled once.
+func (t *OptimizationTestCase) takeShrinkRequest() *ShrinkCallSequenceRequest {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	request := t.shrinkCallSequenceRequest
+	t.shrinkCallSequenceRequest = nil
+	return request
+}
+
+// finalize settles the status of a test case that was running when the campaign ended: it failed if no value greater
+// than the minimum int256 was ever found, and passed otherwise.
+func (t *OptimizationTestCase) finalize() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	if t.status != TestCaseStatusRunning {
+		return
+	}
+	if t.callSequence == nil {
+		t.status = TestCaseStatusFailed
+	} else {
+		t.status = TestCaseStatusPassed
+	}
 }

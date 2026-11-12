@@ -144,10 +144,9 @@ func (t *PropertyTestCaseProvider) onFuzzerStarting(event FuzzerStartingEvent) e
 
 			// Create our property test case
 			propertyTestCase := &PropertyTestCase{
-				status:         TestCaseStatusNotStarted,
+				testCaseState:  testCaseState{status: TestCaseStatusNotStarted},
 				targetContract: contract,
 				targetMethod:   method,
-				callSequence:   nil,
 			}
 
 			// Add to our test cases and register them with the fuzzer
@@ -168,9 +167,7 @@ func (t *PropertyTestCaseProvider) onFuzzerStopping(event FuzzerStoppingEvent) e
 
 	// Loop through each test case and set any tests with a running status to a passed status.
 	for _, testCase := range t.testCases {
-		if testCase.status == TestCaseStatusRunning {
-			testCase.status = TestCaseStatusPassed
-		}
+		testCase.transitionStatus(TestCaseStatusRunning, TestCaseStatusPassed)
 	}
 	return nil
 }
@@ -212,9 +209,7 @@ func (t *PropertyTestCaseProvider) onWorkerDeployedContractAdded(event FuzzerWor
 		t.testCasesLock.Unlock()
 
 		if propertyTestCaseExists {
-			if propertyTestCase.Status() == TestCaseStatusNotStarted {
-				propertyTestCase.status = TestCaseStatusRunning
-			}
+			propertyTestCase.transitionStatus(TestCaseStatusNotStarted, TestCaseStatusRunning)
 			if propertyTestCase.Status() != TestCaseStatusFailed {
 				// Create our property test method reference.
 				workerState := &t.workerStates[event.Worker.WorkerIndex()]
@@ -332,10 +327,8 @@ func (t *PropertyTestCaseProvider) callSequencePostCallTest(worker *FuzzerWorker
 					}
 
 					// Update our test state and report it finalized.
-					testCase.status = TestCaseStatusFailed
-					testCase.callSequence = &shrunkenCallSequence
-					testCase.propertyTestTrace = executionTrace
-					worker.workerMetrics().failedSequences.Add(worker.workerMetrics().failedSequences, big.NewInt(1))
+					testCase.setFailed(shrunkenCallSequence, executionTrace)
+					worker.workerMetrics().failedTests.Add(1)
 					worker.Fuzzer().ReportTestCaseFinished(testCase)
 					return nil
 				},

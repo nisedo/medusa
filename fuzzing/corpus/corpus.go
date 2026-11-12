@@ -49,6 +49,10 @@ type Corpus struct {
 	// are executed to check for test failures.
 	unexecutedCallSequences []calls.CallSequence
 
+	// unexecutedCallSequenceCount mirrors len(unexecutedCallSequences), so workers can check whether any are left
+	// without taking callSequencesLock.
+	unexecutedCallSequenceCount atomic.Int64
+
 	// mutationTargetSequenceChooser is a provider that allows for weighted random selection of callSequences. If a
 	// call sequence was not found to be compatible with this run, it is not added to the chooser.
 	mutationTargetSequenceChooser *randomutils.WeightedRandomChooser[calls.CallSequence]
@@ -191,6 +195,7 @@ func (c *Corpus) Initialize(baseTestChain *chain.TestChain, contractDefinitions 
 	// Initialize our call sequence structures.
 	c.mutationTargetSequenceChooser = randomutils.NewWeightedRandomChooser[calls.CallSequence]()
 	c.unexecutedCallSequences = make([]calls.CallSequence, 0)
+	c.unexecutedCallSequenceCount.Store(0)
 
 	// Create a coverage tracer to track coverage across all blocks.
 	c.coverageMaps = coverage.NewCoverageMaps()
@@ -268,6 +273,7 @@ func (c *Corpus) Initialize(baseTestChain *chain.TestChain, contractDefinitions 
 	for _, sequenceFileData := range c.callSequenceFiles.files {
 		c.unexecutedCallSequences = append(c.unexecutedCallSequences, sequenceFileData.data)
 	}
+	c.unexecutedCallSequenceCount.Store(int64(len(c.unexecutedCallSequences)))
 
 	// This value will increment as call sequences in the corpus are executed and marked as valid.
 	c.validCallSequences.Store(0)
@@ -288,12 +294,12 @@ func (c *Corpus) SetRuntimeBytecodeResolver(resolver *coverage.RuntimeBytecodeRe
 // CallSequenceEntryCount returns the total number of call sequences that increased coverage and also any test results
 // that led to a failure.
 func (c *Corpus) CallSequenceEntryCount() (int, int) {
-	return len(c.callSequenceFiles.files), len(c.testResultSequenceFiles.files)
+	return c.callSequenceFiles.count(), c.testResultSequenceFiles.count()
 }
 
 // InitializingCorpus returns true if the corpus is still initializing, false otherwise.
 func (c *Corpus) InitializingCorpus() bool {
-	return len(c.unexecutedCallSequences) > 0
+	return c.unexecutedCallSequenceCount.Load() > 0
 }
 
 // ActiveMutableSequenceCount returns the count of call sequences recorded in the corpus which have been validated
@@ -320,16 +326,47 @@ func (c *Corpus) RandomMutationTargetSequence() (calls.CallSequence, error) {
 	return seq.Clone()
 }
 
-// addCallSequence adds a call sequence to the corpus in a given corpus directory.
+// corpusOwnedCopy returns a copy of the provided call sequence for the corpus to keep. The caller keeps using and
+// changing its own sequence (e.g. shrinking rewrites its nonces), so the corpus must not share elements with it. The
+// copy also drops execution results, which the corpus never reads and which would keep executed blocks in memory.
+func corpusOwnedCopy(sequence calls.CallSequence) (calls.CallSequence, error) {
+	clonedSequence, err := sequence.Clone()
+	if err != nil {
+		return nil, err
+	}
+	for _, element := range clonedSequence {
+		element.ChainReference = nil
+		element.ExecutionTrace = nil
+	}
+	return clonedSequence, nil
+}
+
+// addCallSequence adds a copy of a call sequence to the corpus in a given corpus directory.
 // Returns an error, if one occurs.
 func (c *Corpus) addCallSequence(sequenceFiles *corpusDirectory[calls.CallSequence], sequence calls.CallSequence, useInMutations bool, mutationChooserWeight *big.Int, flushImmediately bool) error {
+	added, err := c.addCallSequenceLocked(sequenceFiles, sequence, useInMutations, mutationChooserWeight)
+	if err != nil || !added {
+		return err
+	}
+
+	// Flush changes to disk if requested. This is done after unlocking, as flushing will lock on its own.
+	if flushImmediately {
+		return c.Flush()
+	}
+	return nil
+}
+
+// addCallSequenceLocked performs the part of addCallSequence which modifies the call sequence lists.
+// Returns a boolean indicating whether the sequence was added (false if it was a duplicate), and an error if one occurs.
+func (c *Corpus) addCallSequenceLocked(sequenceFiles *corpusDirectory[calls.CallSequence], sequence calls.CallSequence, useInMutations bool, mutationChooserWeight *big.Int) (bool, error) {
 	// Acquire a thread lock during modification of call sequence lists.
 	c.callSequencesLock.Lock()
+	defer c.callSequencesLock.Unlock()
 
 	// Check if call sequence has been added before, if so, exit without any action.
 	seqHash, err := sequence.Hash()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// Verify no existing corpus item hash this same hash.
@@ -337,22 +374,26 @@ func (c *Corpus) addCallSequence(sequenceFiles *corpusDirectory[calls.CallSequen
 		// Calculate the existing sequence hash
 		existingSeqHash, err := existingSeq.data.Hash()
 		if err != nil {
-			c.callSequencesLock.Unlock()
-			return err
+			return false, err
 		}
 
 		// Verify it is unique, if it is not, we quit immediately to avoid duplicate sequences being added.
 		if bytes.Equal(existingSeqHash[:], seqHash[:]) {
-			c.callSequencesLock.Unlock()
-			return nil
+			return false, nil
 		}
+	}
+
+	// Keep our own copy of the sequence, so later changes by the caller do not affect the corpus.
+	sequence, err = corpusOwnedCopy(sequence)
+	if err != nil {
+		return false, err
 	}
 
 	// Update our corpus directory with the new entry.
 	fileName := fmt.Sprintf("%v-%v.json", time.Now().UnixNano(), uuid.New().String())
 	err = sequenceFiles.addFile(fileName, sequence)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// If we want to use this sequence in mutations and initialized a chooser, add our call sequence item to it.
@@ -362,16 +403,7 @@ func (c *Corpus) addCallSequence(sequenceFiles *corpusDirectory[calls.CallSequen
 		}
 		c.mutationTargetSequenceChooser.AddChoices(randomutils.NewWeightedRandomChoice(sequence, mutationChooserWeight))
 	}
-
-	// Unlock now, as flushing will lock on its own.
-	c.callSequencesLock.Unlock()
-
-	// Flush changes to disk if requested.
-	if flushImmediately {
-		return c.Flush()
-	} else {
-		return nil
-	}
+	return true, nil
 }
 
 // AddTestResultCallSequence adds a call sequence recorded to the corpus due to a test case provider flagging it to be
@@ -436,7 +468,12 @@ func (c *Corpus) MarkCallSequenceForMutation(sequence calls.CallSequence, mutati
 		mutationChooserWeight = big.NewInt(1)
 	}
 
-	// Unclear whether a lock is needed but might as well be safe
+	// Keep our own copy of the sequence, so later changes by the caller do not affect the corpus.
+	sequence, err := corpusOwnedCopy(sequence)
+	if err != nil {
+		return err
+	}
+
 	c.callSequencesLock.Lock()
 	defer c.callSequencesLock.Unlock()
 
@@ -464,7 +501,7 @@ func (c *Corpus) ValidCallSequences() uint64 {
 func (c *Corpus) UnexecutedCallSequence() *calls.CallSequence {
 	// Prior to thread locking, if we have no un-executed call sequences, quit.
 	// This is a speed optimization, as thread locking on a central component affects performance.
-	if len(c.unexecutedCallSequences) == 0 {
+	if c.unexecutedCallSequenceCount.Load() == 0 {
 		return nil
 	}
 
@@ -481,6 +518,7 @@ func (c *Corpus) UnexecutedCallSequence() *calls.CallSequence {
 	// Otherwise obtain the first item and remove it from the slice.
 	firstSequence := c.unexecutedCallSequences[0]
 	c.unexecutedCallSequences = c.unexecutedCallSequences[1:]
+	c.unexecutedCallSequenceCount.Store(int64(len(c.unexecutedCallSequences)))
 
 	// Return the first sequence
 	return &firstSequence

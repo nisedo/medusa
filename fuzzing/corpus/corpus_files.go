@@ -38,6 +38,13 @@ type corpusDirectory[T any] struct {
 	filesLock sync.Mutex
 }
 
+// count returns the number of files in the directory.
+func (cd *corpusDirectory[T]) count() int {
+	cd.filesLock.Lock()
+	defer cd.filesLock.Unlock()
+	return len(cd.files)
+}
+
 // newCorpusDirectory returns a new corpusDirectory with the provided directory path set.
 // If the directory path is an empty string, then files will not be read from, or written to disk.
 func newCorpusDirectory[T any](path string) *corpusDirectory[T] {
