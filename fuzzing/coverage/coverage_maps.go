@@ -191,6 +191,32 @@ func (cm *CoverageMaps) getContractCoverageMapByHash(hash common.Hash) (*Contrac
 	}
 }
 
+// HasNewCoverage indicates whether the provided coverage maps cover anything the current coverage maps do not. Unlike
+// Update, it leaves the current coverage maps unchanged.
+func (cm *CoverageMaps) HasNewCoverage(coverageMaps *CoverageMaps) bool {
+	// If our maps provided are nil, they cover nothing
+	if coverageMaps == nil {
+		return false
+	}
+
+	// Acquire our thread lock and defer our unlocking for when we exit this method
+	cm.updateLock.Lock()
+	defer cm.updateLock.Unlock()
+
+	for codeHash, otherMapsByAddress := range coverageMaps.maps {
+		mapsByAddress := cm.maps[codeHash]
+		for codeAddress, otherCoverageMap := range otherMapsByAddress {
+			coverageMap := mapsByAddress[codeAddress]
+			for marker, hitCount := range otherCoverageMap.executedMarkers {
+				if hitCount != 0 && coverageMap.HitCount(marker) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // Update updates the current coverage maps with the provided ones.
 // Returns a boolean indicating whether coverage changed, or an error if one occurred.
 func (cm *CoverageMaps) Update(coverageMaps *CoverageMaps) (bool, error) {

@@ -102,8 +102,10 @@ type Fuzzer struct {
 
 	// campaign tracks when the current fuzzing campaign started and how it ended, for reporting.
 	campaign campaignState
-	// campaignLock guards campaign, and the assignment of metrics and corpus when a campaign starts, so a report
-	// can be requested from another goroutine at any time.
+	// session executes call sequences supplied from outside the fuzzer. It is only set while a campaign is running.
+	session *sequenceSession
+	// campaignLock guards campaign and session, and the assignment of metrics and corpus when a campaign starts,
+	// so a report or a call sequence execution can be requested from another goroutine at any time.
 	campaignLock sync.Mutex
 	// testCasesFinished describes test cases already reported as having been finalized.
 	testCasesFinished map[string]TestCase
@@ -1206,6 +1208,23 @@ func (f *Fuzzer) Start() (err error) {
 		f.logger.Error("Failed to initialize the corpus", err)
 		return err
 	}
+
+	// Create the session which executes call sequences supplied from outside the fuzzer, for as long as the
+	// campaign runs.
+	session, err := newSequenceSession(f, baseTestChain)
+	if err != nil {
+		f.logger.Error("Failed to create the call sequence session", err)
+		return err
+	}
+	f.campaignLock.Lock()
+	f.session = session
+	f.campaignLock.Unlock()
+	defer func() {
+		f.campaignLock.Lock()
+		f.session = nil
+		f.campaignLock.Unlock()
+		session.close()
+	}()
 
 	// Log that we will initialize corpus if there are any call sequences or test results
 	if totalCallSequences, testResults := f.corpus.CallSequenceEntryCount(); totalCallSequences > 0 || testResults > 0 {

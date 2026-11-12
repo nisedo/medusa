@@ -72,6 +72,11 @@ type FuzzingConfig struct {
 	// ends: its outcome, metrics, test results with execution traces, and coverage. If empty, no file is written.
 	ResultsFile string `json:"resultsFile"`
 
+	// MCPPort describes the port to serve a Model Context Protocol (MCP) server on while the campaign runs, which
+	// lets AI agents and other tools inspect and steer the campaign. It only listens on the loopback interface. If
+	// zero, no server is started.
+	MCPPort int `json:"mcpPort"`
+
 	// CoverageEnabled describes whether to use coverage-guided fuzzing
 	CoverageEnabled bool `json:"coverageEnabled"`
 
@@ -408,6 +413,11 @@ func (p *ProjectConfig) WriteToFile(path string) error {
 // Validate validates that the ProjectConfig meets certain requirements.
 // Returns an error if one occurs.
 func (p *ProjectConfig) Validate() error {
+	// Verify the MCP server port is a valid port, or zero to disable the server
+	if p.Fuzzing.MCPPort < 0 || p.Fuzzing.MCPPort > 65535 {
+		return errors.New("project configuration must specify an MCP port (mcpPort) between 0 and 65535")
+	}
+
 	// Create logger instance if global logger is available
 	logger := logging.NewLogger(zerolog.Disabled)
 	if logging.GlobalLogger != nil {

@@ -37,8 +37,8 @@ func (f *Fuzzer) endCampaign(err error) {
 // coverage. It can be called while the campaign is running, from any goroutine, to obtain a snapshot.
 // Returns the report, or an error if source coverage could not be analyzed.
 func (f *Fuzzer) Report() (*report.Campaign, error) {
-	campaignReport := f.reportWithoutCoverage()
-	sourceAnalysis, err := f.analyzeSourceCoverage()
+	campaignReport := f.ReportWithoutCoverage()
+	sourceAnalysis, err := f.SourceCoverage()
 	if err != nil {
 		return nil, err
 	}
@@ -48,9 +48,10 @@ func (f *Fuzzer) Report() (*report.Campaign, error) {
 	return campaignReport, nil
 }
 
-// analyzeSourceCoverage analyzes which source lines the campaign has covered so far.
+// SourceCoverage analyzes which source lines the campaign has covered so far. It can be called while the campaign is
+// running, from any goroutine.
 // Returns nil if coverage is disabled or the campaign has no corpus yet, or an error if the analysis fails.
-func (f *Fuzzer) analyzeSourceCoverage() (*coverage.SourceAnalysis, error) {
+func (f *Fuzzer) SourceCoverage() (*coverage.SourceAnalysis, error) {
 	f.campaignLock.Lock()
 	campaignCorpus := f.corpus
 	f.campaignLock.Unlock()
@@ -60,8 +61,9 @@ func (f *Fuzzer) analyzeSourceCoverage() (*coverage.SourceAnalysis, error) {
 	return coverage.AnalyzeSourceCoverage(f.compilations, campaignCorpus.CoverageMaps(), f.config.Fuzzing.CoverageExclusions, f.logger)
 }
 
-// reportWithoutCoverage returns the report of the current fuzzing campaign, leaving out coverage.
-func (f *Fuzzer) reportWithoutCoverage() *report.Campaign {
+// ReportWithoutCoverage returns the report of the current fuzzing campaign like Report, leaving out coverage, which
+// is the costly part to compute. It can be called while the campaign is running, from any goroutine.
+func (f *Fuzzer) ReportWithoutCoverage() *report.Campaign {
 	f.campaignLock.Lock()
 	campaign, metrics, campaignCorpus := f.campaign, f.metrics, f.corpus
 	f.campaignLock.Unlock()
@@ -115,6 +117,9 @@ func (f *Fuzzer) reportWithoutCoverage() *report.Campaign {
 	if campaignCorpus != nil {
 		campaignReport.Metrics.CorpusSequences, _ = campaignCorpus.CallSequenceEntryCount()
 		campaignReport.Metrics.BranchesHit = campaignCorpus.CoverageMaps().BranchesHit()
+		if lastCoverageIncrease := campaignCorpus.LastCoverageIncrease(); !lastCoverageIncrease.IsZero() {
+			campaignReport.Metrics.LastNewCoverageAt = &lastCoverageIncrease
+		}
 	}
 	return campaignReport
 }
@@ -191,10 +196,10 @@ func (f *Fuzzer) writeResultsFile(sourceAnalysis *coverage.SourceAnalysis) {
 		return
 	}
 
-	campaignReport := f.reportWithoutCoverage()
+	campaignReport := f.ReportWithoutCoverage()
 	if sourceAnalysis == nil {
 		var err error
-		sourceAnalysis, err = f.analyzeSourceCoverage()
+		sourceAnalysis, err = f.SourceCoverage()
 		if err != nil {
 			f.logger.Error("Failed to analyze source coverage for the results file", err)
 		}

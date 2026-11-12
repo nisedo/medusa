@@ -100,6 +100,17 @@ written when the campaign ends (equivalent to
 medusa fuzz --results-file results.json
 ```
 
+### `--mcp-port`
+
+The `--mcp-port` flag starts the [MCP server](../testing/mcp_server.md) on the given port, so AI agents and other
+tools can inspect and steer the campaign while it runs (equivalent to
+[`fuzzing.mcpPort`](../project_configuration/fuzzing_config.md#mcpport))
+
+```shell
+# Serve the MCP server at http://127.0.0.1:8765/mcp
+medusa fuzz --mcp-port 8765
+```
+
 ### `--senders`
 
 The `--senders` flag allows you to update `medusa`'s senders (equivalent to

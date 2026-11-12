@@ -39,6 +39,10 @@ type CallSequenceGenerator struct {
 	// mutationStrategyChooser is a weighted random selector of functions that prepare the CallSequenceGenerator with
 	// a baseSequence derived from corpus entries.
 	mutationStrategyChooser *randomutils.WeightedRandomChooser[CallSequenceGeneratorMutationStrategy]
+
+	// replayingCorpusSequence indicates whether the current sequence is a corpus call sequence being replayed as it
+	// is, rather than a new or mutated one. A replayed sequence keeps the call fields it was saved with.
+	replayingCorpusSequence bool
 }
 
 // CallSequenceGeneratorConfig defines the configuration for a CallSequenceGenerator to be created and used by a
@@ -195,12 +199,14 @@ func (g *CallSequenceGenerator) InitializeNextSequence() (bool, error) {
 	g.baseSequence = make(calls.CallSequence, g.worker.fuzzer.config.Fuzzing.CallSequenceLength)
 	g.fetchIndex = 0
 	g.prefetchModifyCallFunc = nil
+	g.replayingCorpusSequence = false
 
 	// Check if there are any previously un-executed corpus call sequences. If there are, the fuzzer should execute
 	// those first.
 	unexecutedSequence := g.worker.fuzzer.corpus.UnexecutedCallSequence()
 	if unexecutedSequence != nil {
 		g.baseSequence = *unexecutedSequence
+		g.replayingCorpusSequence = true
 		return false, nil
 	}
 
@@ -265,8 +271,7 @@ func (g *CallSequenceGenerator) PopSequenceElement() (*calls.CallSequenceElement
 	}
 
 	// Update the element with the current nonce for the associated chain only if we are not replaying a corpus sequence.
-	// TODO: This feels a little hacky
-	if !g.worker.fuzzer.corpus.InitializingCorpus() {
+	if !g.replayingCorpusSequence {
 		element.Call.FillFromTestChainProperties(g.worker.chain)
 	}
 

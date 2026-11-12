@@ -11,6 +11,7 @@ import (
 
 	"github.com/crytic/medusa/fuzzing"
 	"github.com/crytic/medusa/fuzzing/config"
+	"github.com/crytic/medusa/fuzzing/mcpserver"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -154,6 +155,17 @@ func cmdRunFuzz(cmd *cobra.Command, args []string) error {
 	fuzzer, fuzzErr := fuzzing.NewFuzzer(*projectConfig)
 	if fuzzErr != nil {
 		return exitcodes.NewErrorWithExitCode(fuzzErr, exitcodes.ExitCodeHandledError)
+	}
+
+	// Serve the MCP server for the duration of the campaign, if requested
+	if projectConfig.Fuzzing.MCPPort != 0 {
+		address, stopServer, serverErr := mcpserver.New(fuzzer, version).Listen(projectConfig.Fuzzing.MCPPort)
+		if serverErr != nil {
+			cmdLogger.Error("Failed to start the MCP server", serverErr)
+			return exitcodes.NewErrorWithExitCode(serverErr, exitcodes.ExitCodeHandledError)
+		}
+		defer stopServer()
+		cmdLogger.Info("MCP server listening at ", colors.Bold, "http://", address.String(), mcpserver.Path, colors.Reset)
 	}
 
 	// Stop our fuzzing on keyboard interrupts

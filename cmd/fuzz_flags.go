@@ -54,6 +54,10 @@ func addFuzzFlags() error {
 	fuzzCmd.Flags().String("results-file", "",
 		"file path to write a machine-readable JSON report of the campaign to")
 
+	// MCP server port
+	fuzzCmd.Flags().Int("mcp-port", 0,
+		"port to serve an MCP server on (localhost only) so AI agents can inspect and steer the campaign")
+
 	// Senders
 	fuzzCmd.Flags().StringSlice("senders", []string{},
 		"account address(es) used to send state-changing txns")
@@ -159,6 +163,14 @@ func updateProjectConfigWithFuzzFlags(cmd *cobra.Command, projectConfig *config.
 	// Update results file
 	if cmd.Flags().Changed("results-file") {
 		projectConfig.Fuzzing.ResultsFile, err = cmd.Flags().GetString("results-file")
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update MCP server port
+	if cmd.Flags().Changed("mcp-port") {
+		projectConfig.Fuzzing.MCPPort, err = cmd.Flags().GetInt("mcp-port")
 		if err != nil {
 			return err
 		}
