@@ -2,9 +2,9 @@
 
 ## Description
 
-The `prank` cheatcode will set the `msg.sender` for _only the next call_ to the specified input address. Note that,
-contrary to [`prank` in Foundry](https://book.getfoundry.sh/cheatcodes/prank#description), calling the cheatcode contract will count as a
-valid "next call"
+The `prank` cheatcode will set the `msg.sender` for _only the next call_ to the specified input address. As with
+[`prank` in Foundry](https://book.getfoundry.sh/cheatcodes/prank#description), calls to the cheatcode contract do not
+count as the "next call". The prank applies to external calls only; an internal function call does not consume it.
 
 ## Example
 
@@ -25,7 +25,7 @@ contract TestContract {
         // Prank, change ownership, and verify
         address newOwner = address(456);
         cheats.prank(owner);
-        transferOwnership(newOwner);
+        this.transferOwnership(newOwner);
         assert(owner == newOwner);
     }
 }

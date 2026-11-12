@@ -23,7 +23,7 @@ medusa fuzz --target-contracts "TestContract" --test-limit 10_000
 ```
 
 The `--target-contracts` flag tells `medusa` which contracts to run fuzz tests on. You can specify more than one
-contract to fuzz test at once (e.g. `--target-contracts "TestContract, TestOtherContract"`). The `--test-limit` flag
+contract to fuzz test at once (e.g. `--target-contracts "TestContract,TestOtherContract"`). The `--test-limit` flag
 tells `medusa` to execute `10_000` transactions before stopping the fuzzing campaign.
 
 > Note: The target contracts and the test limit can also be configured via the project configuration file, which is the

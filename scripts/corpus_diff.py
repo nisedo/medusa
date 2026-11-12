@@ -9,7 +9,10 @@ def load_json_files_from_subdirectory(subdirectory):
             if file.endswith('.json'):
                 with open(os.path.join(root, file), 'r') as f:
                     data = json.load(f)
-                    json_data.extend(data)
+                # Skip non-sequence files (e.g. coverage/revert_report.json).
+                if not isinstance(data, list):
+                    continue
+                json_data.extend(data)
     return json_data
 
 def extract_unique_methods(transactions):
@@ -57,7 +60,7 @@ def main(subdirectory1, subdirectory2):
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        print("Usage: python3 unique.py <corpus1> <corpus2>")
+        print("Usage: python3 corpus_diff.py <corpus1> <corpus2>")
         print("Compares the unique methods in the two given corpora.")
         sys.exit(1)
     main(sys.argv[1], sys.argv[2])

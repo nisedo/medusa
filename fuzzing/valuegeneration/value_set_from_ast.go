@@ -88,7 +88,7 @@ func getAbsoluteValueFromDenominatedValue(number decimal.Decimal, denomination *
 	case "weeks":
 		multiplier = decimal.NewFromFloat32(60 * 60 * 24 * 7)
 	case "years":
-		multiplier = decimal.NewFromFloat32(60 * 60 * 24 * 7 * 365)
+		multiplier = decimal.NewFromFloat32(60 * 60 * 24 * 365)
 	default:
 		multiplier = decimal.NewFromFloat32(1)
 	}

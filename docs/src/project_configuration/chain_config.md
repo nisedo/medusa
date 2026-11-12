@@ -102,5 +102,5 @@ These options live under `fuzzing.chainConfig.forkConfig`.
 
 - **Type**: Integer
 - **Description**: Determines the size of the client pool used to query the RPC. It is recommended to use a pool size
-- that is 2-3x the number of workers used, but smaller pools may be required to avoid exceeding external RPC query limits.
+  that is 2-3x the number of workers used, but smaller pools may be required to avoid exceeding external RPC query limits.
 - **Default**: `20`

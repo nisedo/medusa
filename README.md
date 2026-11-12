@@ -39,7 +39,7 @@ cd medusa
 go install .
 ```
 
-For more information on building from source, using package managers, or obtaining binaries for Windows and Linux,
+For more information on building from source, building with Nix, or using the Docker image,
 please refer to the [installation guide](./docs/src/getting_started/installation.md).
 
 ## License

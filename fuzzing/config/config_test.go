@@ -19,6 +19,7 @@ func TestUnmarshalBalances(t *testing.T) {
 		{"\"100\"", ContractBalance{*big.NewInt(100)}},
 		{"\"0\"", ContractBalance{*big.NewInt(0)}},
 		{"\"1e5\"", ContractBalance{*big.NewInt(100000)}},
+		{"\"1e23\"", ContractBalance{*new(big.Int).Exp(big.NewInt(10), big.NewInt(23), nil)}},
 		{"\"10E-1\"", ContractBalance{*big.NewInt(1)}},
 		{"\"0x1337\"", ContractBalance{*big.NewInt(4919)}},
 		{"\"0X10\"", ContractBalance{*big.NewInt(16)}},

@@ -80,5 +80,5 @@ function toString(bool) external returns (string memory);
 function toString(uint256) external returns (string memory);
 function toString(int256) external returns (string memory);
 function toString(bytes32) external returns (string memory);
-function toString(bytes) external returns (string memory);
+function toString(bytes calldata) external returns (string memory);
 ```

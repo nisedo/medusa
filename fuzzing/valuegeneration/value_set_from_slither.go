@@ -38,8 +38,9 @@ func (vs *ValueSet) SeedFromSlither(slither *compilationTypes.SlitherResults) {
 			if !ok {
 				continue
 			}
-			vs.AddAddress(common.BigToAddress(addressBigInt))
-			vs.AddBytes([]byte(constant.Value))
+			address := common.BigToAddress(addressBigInt)
+			vs.AddAddress(address)
+			vs.AddBytes(address.Bytes())
 		}
 	}
 }

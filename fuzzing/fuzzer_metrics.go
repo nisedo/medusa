@@ -135,6 +135,12 @@ func (m *fuzzerWorkerMetrics) updateRevertMetrics(callSequenceElement *calls.Cal
 		return
 	}
 
+	// Calls without a resolved contract or ABI method (e.g. fallback calls or raw calldata) are not tracked.
+	if callSequenceElement.Contract == nil || callSequenceElement.Call.DataAbiValues == nil ||
+		callSequenceElement.Call.DataAbiValues.Method == nil {
+		return
+	}
+
 	// Send the revert metrics update to the revert reporter
 	m.revertMetricsChan <- reverts.RevertMetricsUpdate{
 		ContractName:    callSequenceElement.Contract.Name(),

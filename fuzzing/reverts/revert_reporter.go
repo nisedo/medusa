@@ -17,6 +17,7 @@ import (
 	"github.com/crytic/medusa-geth/accounts/abi"
 	"github.com/crytic/medusa/fuzzing/contracts"
 	"github.com/crytic/medusa/logging"
+	"github.com/crytic/medusa/utils"
 )
 
 var (
@@ -136,8 +137,14 @@ func (r *RevertReporter) BuildArtifacts() error {
 	// If we have a previous revert metrics, we need to merge them with the current revert metrics
 	r.RevertMetrics.Finalize(r.PrevRevertMetrics)
 
+	// Make sure the output directory exists (it is otherwise only created by the coverage reports)
+	err := utils.MakeDirectory(r.Path)
+	if err != nil {
+		return err
+	}
+
 	// Write JSON report to disk
-	err := r.writeJSONReport()
+	err = r.writeJSONReport()
 	if err != nil {
 		return err
 	}

@@ -110,7 +110,7 @@ func (c *WeightedRandomChooser[T]) Choose() (*T, error) {
 	// If our total weight fits in an int64 and int is an int64 on this architecture, this is a quick calculation.
 	// If it's a larger number, we calculate the position with a bit more work.
 	var selectedWeightPosition *big.Int
-	if c.totalWeight.IsInt64() && unsafe.Sizeof(0) == 64 {
+	if c.totalWeight.IsInt64() && unsafe.Sizeof(0) == 8 {
 		selectedWeightPosition = big.NewInt(int64(c.randomProvider.Intn(int(c.totalWeight.Int64()))))
 	} else {
 		// Next we'll determine how many bits/bytes are needed to represent our random value

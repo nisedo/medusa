@@ -1355,7 +1355,7 @@ func TestVMCorrectness(t *testing.T) {
 
 	// Test timestamps behave as expected.
 	runFuzzerTest(t, &fuzzerSolcFileTest{
-		filePath: "testdata/contracts/vm_tests/block_number_increasing.sol",
+		filePath: "testdata/contracts/vm_tests/block_timestamp_increasing.sol",
 		configUpdates: func(config *config.ProjectConfig) {
 			config.Fuzzing.TargetContracts = []string{"TestContract"}
 			config.Fuzzing.MaxBlockTimestampDelay = 1 // this contract require calls every block

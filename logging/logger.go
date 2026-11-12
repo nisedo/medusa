@@ -315,6 +315,9 @@ func buildMsgs(args ...any) (string, string, []error, StructuredLogInfo) {
 	// Iterate through each argument in the list and switch on type
 	for _, arg := range args {
 		switch t := arg.(type) {
+		case nil:
+			// A nil argument (e.g. a nil error) carries no information, so it is skipped rather than printed as "<nil>"
+			continue
 		case colors.ColorFunc:
 			// If the argument is a color function, switch the current color context
 			colorCtx = t

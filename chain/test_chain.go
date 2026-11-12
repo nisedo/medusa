@@ -291,6 +291,9 @@ func (t *TestChain) Clone(onCreateFunc func(chain *TestChain) error) (*TestChain
 		return nil, err
 	}
 
+	// Carry over the compiled contracts so cheatcodes (e.g. vm.getCode) resolve them on the cloned chain too.
+	maps.Copy(targetChain.CompiledContracts, t.CompiledContracts)
+
 	// If we have a provided function for our creation event, execute it now
 	if onCreateFunc != nil {
 		err = onCreateFunc(targetChain)
@@ -575,13 +578,16 @@ func (t *TestChain) CallContract(msg *core.Message, state types.MedusaStateDB, a
 
 	// Gather receipt for OnTxEnd
 	receipt := &gethTypes.Receipt{Type: tx.Type()}
-	if msgResult.Failed() {
+	// msgResult is nil if the message could not be applied at all (err != nil).
+	if msgResult == nil || msgResult.Failed() {
 		receipt.Status = gethTypes.ReceiptStatusFailed
 	} else {
 		receipt.Status = gethTypes.ReceiptStatusSuccessful
 	}
 	receipt.TxHash = tx.Hash()
-	receipt.GasUsed = msgResult.UsedGas
+	if msgResult != nil {
+		receipt.GasUsed = msgResult.UsedGas
+	}
 
 	// HACK: use OnTxEnd to store the execution trace.
 	// Need to explicitly call OnTxEnd
