@@ -7,6 +7,8 @@ on:
     paths:
       - "go.mod"
       - "go.sum"
+      - "flake.nix"
+      - "flake.lock"
 
 concurrency:
   group: nix-check-${{ github.ref }}

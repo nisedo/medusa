@@ -76,7 +76,7 @@ The `--target-contracts` flag allows you to update the target contracts for fuzz
 
 ```shell
 # Set target contracts
-medusa fuzz --target-contracts "TestMyContract, TestMyOtherContract"
+medusa fuzz --target-contracts "TestMyContract,TestMyOtherContract"
 ```
 
 ### `--corpus-dir`
@@ -113,7 +113,7 @@ medusa fuzz --deployer "0x40000"
 
 The `--use-slither` flag allows you to run Slither on the codebase to extract valuable constants for mutation testing.
 Equivalent to [`slither.useSlither`](../project_configuration/slither_config.md#useslither). Note
-that if there are cached results (via [`slither.CachePath`](../project_configuration/slither_config.md#cachepath)) then
+that if there are cached results (via [`slither.cachePath`](../project_configuration/slither_config.md#cachepath)) then
 the cache will be used.
 
 ```shell
@@ -123,7 +123,7 @@ medusa fuzz --use-slither
 
 ### `--use-slither-force`
 
-The `--use-slither-force` flag is similar to `--use-slither` except the cache at `slither.CachePath` will be
+The `--use-slither-force` flag is similar to `--use-slither` except the cache at `slither.cachePath` will be
 overwritten.
 
 ```shell
@@ -134,7 +134,7 @@ medusa fuzz --use-slither-force
 ### `--fail-fast`
 
 The `--fail-fast` flag enables fast failure (equivalent to
-[`testing.StopOnFailedTest`](../project_configuration/testing_config.md#stoponfailedtest))
+[`fuzzing.testing.stopOnFailedTest`](../project_configuration/testing_config.md#stoponfailedtest))
 
 ```shell
 # Enable fast failure
@@ -163,7 +163,7 @@ medusa fuzz -vvv
 ### `--no-color`
 
 The `--no-color` flag disables colored console output (equivalent to
-[`logging.NoColor`](../project_configuration/logging_config.md#nocolor))
+[`logging.noColor`](../project_configuration/logging_config.md#nocolor))
 
 ```shell
 # Disable colored output
@@ -172,7 +172,7 @@ medusa fuzz --no-color
 
 ### `--explore`
 
-The `--explore` flag enables exploration mode. This sets the [`StopOnFailedTest`](../project_configuration/testing_config.md#stoponfailedtest) and [`StopOnNoTests`](../project_configuration/testing_config.md#stoponnotests)
+The `--explore` flag enables exploration mode. This sets the [`stopOnFailedTest`](../project_configuration/testing_config.md#stoponfailedtest) and [`stopOnNoTests`](../project_configuration/testing_config.md#stoponnotests)
 fields to `false` and turns off assertion, property, and optimization testing.
 
 ```shell

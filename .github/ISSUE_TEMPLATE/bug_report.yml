@@ -34,7 +34,7 @@ body:
     id: medusa-version
     attributes:
       label: Medusa Version
-      description: What version of Medusa are you using? Run `medusa version` or provide the commit hash.
+      description: What version of Medusa are you using? Run `medusa --version` or provide the commit hash.
       placeholder: e.g., v0.1.8 or commit c8a990d
     validations:
       required: true

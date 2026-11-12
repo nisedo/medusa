@@ -10,7 +10,10 @@ def load_json_files_from_subdirectory(subdirectory):
             if file.endswith('.json'):
                 with open(os.path.join(root, file), 'r') as f:
                     data = json.load(f)
-                    json_data.append(data)
+                # Skip non-sequence files (e.g. coverage/revert_report.json).
+                if not isinstance(data, list):
+                    continue
+                json_data.append(data)
     return json_data
 
 
@@ -35,7 +38,7 @@ def main(subdirectory):
         analyze_transactions(seq, method_counter)
         total_length += len(seq)
 
-    average_length = total_length // len(transaction_seqs)
+    average_length = total_length // len(transaction_seqs) if transaction_seqs else 0
 
     print(f"Number of Sequences in {subdirectory}: {len(transaction_seqs)}")
     print("\n")
