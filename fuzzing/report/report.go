@@ -113,6 +113,10 @@ type Metrics struct {
 
 	// BranchesHit is the number of distinct branches which were executed.
 	BranchesHit uint64 `json:"branchesHit"`
+
+	// LastNewCoverageAt is the time a call sequence last reached new code. It is not set if none has since the
+	// campaign started. A long time without new coverage suggests the campaign has stalled.
+	LastNewCoverageAt *time.Time `json:"lastNewCoverageAt,omitempty"`
 }
 
 // Test describes one test of a campaign.

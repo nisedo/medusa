@@ -86,6 +86,14 @@ The fuzzing configuration defines the parameters for the fuzzing campaign.
   string (which it is by default), no results file is written.
 - **Default**: ""
 
+### `mcpPort`
+
+- **Type**: Integer
+- **Description**: The port to serve the [MCP server](./../testing/mcp_server.md) on while the campaign runs, which
+  lets AI agents and other tools inspect and steer the campaign. The server only listens on `127.0.0.1`. If set to
+  `0` (which it is by default), no server is started.
+- **Default**: `0`
+
 ### `coverageFormats`
 
 - **Type**: [String] (e.g. `["lcov"]`)

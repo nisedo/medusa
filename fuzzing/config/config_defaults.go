@@ -53,6 +53,7 @@ func GetDefaultProjectConfig(platform string) (*ProjectConfig, error) {
 			ConstructorArgs:         map[string]map[string]any{},
 			CorpusDirectory:         "",
 			ResultsFile:             "",
+			MCPPort:                 0,
 			CoverageEnabled:         true,
 			CoverageFormats:         []string{"html", "lcov"},
 			CoverageExclusions:      []string{"lib/forge-std/**"},

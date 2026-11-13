@@ -1,7 +1,9 @@
 package coverage
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/crytic/medusa/compilation/types"
 )
@@ -142,4 +144,25 @@ func (s *SourceFileAnalysis) lineRanges(matches func(line *SourceLineAnalysis) b
 		}
 	}
 	return ranges
+}
+
+// AnnotatedSource returns the source of the file, line by line. Each line starts with a marker of its coverage and
+// its line number: "+" for a line which was executed, "r" for one only executed by calls that reverted, "-" for one
+// never executed, and a space for a line which is not executable.
+func (s *SourceFileAnalysis) AnnotatedSource() string {
+	var source strings.Builder
+	for i, line := range s.Lines {
+		marker := " "
+		switch {
+		case !line.IsActive:
+		case line.IsCovered:
+			marker = "+"
+		case line.IsCoveredReverted:
+			marker = "r"
+		default:
+			marker = "-"
+		}
+		fmt.Fprintf(&source, "%s %4d | %s\n", marker, i+1, strings.TrimRight(string(line.Contents), "\r\n"))
+	}
+	return source.String()
 }

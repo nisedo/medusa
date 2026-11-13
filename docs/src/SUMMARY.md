@@ -34,6 +34,7 @@
 - [Writing System-Level Invariants](./testing/writing-system-level-invariants.md)
 - [Fuzzing Pre-Deployed Contracts](./testing/genesis_state.md)
 - [Reporting](./testing/reporting.md)
+- [MCP Server](./testing/mcp_server.md)
 
 # API
 

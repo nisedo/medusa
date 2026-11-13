@@ -10,6 +10,7 @@
     "pruneFrequency": 5,
     "corpusDirectory": "",
     "resultsFile": "",
+    "mcpPort": 0,
     "coverageEnabled": true,
     "coverageFormats": ["html", "lcov"],
     "coverageExclusions": ["lib/forge-std/**"],

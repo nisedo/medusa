@@ -1,6 +1,7 @@
 package corpus
 
 import (
+	"encoding/json"
 	"math/rand"
 
 	"bytes"
@@ -63,6 +64,10 @@ type Corpus struct {
 
 	// validCallSequences tracks how many call sequences in the corpus are valid when the corpus is re-run.
 	validCallSequences atomic.Uint64
+
+	// lastCoverageIncrease is the time coverage last increased, in nanoseconds since the Unix epoch. It is zero if
+	// coverage has not increased since the corpus was initialized.
+	lastCoverageIncrease atomic.Int64
 
 	// logger describes the Corpus's log object that can be used to log important events
 	logger *logging.Logger
@@ -406,6 +411,46 @@ func (c *Corpus) addCallSequenceLocked(sequenceFiles *corpusDirectory[calls.Call
 	return true, nil
 }
 
+// AddExternalCallSequence adds a call sequence supplied from outside the fuzzer (e.g. by an agent) to the corpus, and
+// queues it for a worker to replay. The replay runs every test against it, records the coverage it reaches and makes
+// it a target for mutations, exactly as for a call sequence loaded from disk when a campaign starts.
+// Returns a boolean indicating whether the sequence was added (false if the corpus already has it), and an error if
+// one occurs.
+func (c *Corpus) AddExternalCallSequence(callSequence calls.CallSequence) (bool, error) {
+	added, err := c.addCallSequenceLocked(c.callSequenceFiles, callSequence, false, nil)
+	if err != nil || !added {
+		return false, err
+	}
+
+	// Queue the sequence for replay in the form it has when loaded from disk, which is what a worker expects to
+	// bind to its own chain and execute. This is also our own copy, as the worker changes it in place.
+	serializedSequence, err := json.Marshal(callSequence)
+	if err != nil {
+		return false, err
+	}
+	var queuedSequence calls.CallSequence
+	if err = json.Unmarshal(serializedSequence, &queuedSequence); err != nil {
+		return false, err
+	}
+	c.callSequencesLock.Lock()
+	c.unexecutedCallSequences = append(c.unexecutedCallSequences, queuedSequence)
+	c.unexecutedCallSequenceCount.Store(int64(len(c.unexecutedCallSequences)))
+	c.callSequencesLock.Unlock()
+
+	// Write the new corpus entry to disk right away, so it is not lost if the campaign is interrupted.
+	return true, c.Flush()
+}
+
+// LastCoverageIncrease returns the time coverage last increased, or the zero time if it has not increased since the
+// corpus was initialized.
+func (c *Corpus) LastCoverageIncrease() time.Time {
+	nanoseconds := c.lastCoverageIncrease.Load()
+	if nanoseconds == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanoseconds)
+}
+
 // AddTestResultCallSequence adds a call sequence recorded to the corpus due to a test case provider flagging it to be
 // recorded.
 // Returns an error, if one occurs.
@@ -448,6 +493,9 @@ func (c *Corpus) CheckSequenceCoverageAndUpdate(callSequence calls.CallSequence,
 	coverageUpdated, err := checkSequenceCoverageAndUpdate(callSequence, c.coverageMaps)
 	if err != nil {
 		return err
+	}
+	if coverageUpdated {
+		c.lastCoverageIncrease.Store(time.Now().UnixNano())
 	}
 
 	// If we had an increase in coverage, we save the sequence.
