@@ -98,11 +98,6 @@ type coverageTracerCallFrameState struct {
 	justJumped bool
 }
 
-// NewCoverageTracer returns a new CoverageTracer.
-func NewCoverageTracer() *CoverageTracer {
-	return newCoverageTracer(nil)
-}
-
 // NewCoverageTracerWithContractDefinitions returns a coverage tracer that can resolve compiler-declared immutable
 // runtime ranges. NewCoverageTracer remains unchanged for callers that do not have compilation definitions.
 func NewCoverageTracerWithContractDefinitions(contractDefinitions contracts.Contracts) (*CoverageTracer, error) {

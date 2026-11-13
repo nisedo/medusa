@@ -37,16 +37,6 @@ func IsWindowsEnvironment() bool {
 	return runtime.GOOS == "windows"
 }
 
-// IsMacOSEnvironment returns a boolean indicating whether the current execution environment is a macOS platform.
-func IsMacOSEnvironment() bool {
-	return runtime.GOOS == "darwin"
-}
-
-// IsLinuxEnvironment returns a boolean indicating whether the current execution environment is a Linux platform.
-func IsLinuxEnvironment() bool {
-	return runtime.GOOS == "linux"
-}
-
 // synchronizedWriter wraps an io.Writer to avoid a data race when writing.
 type synchronizedWriter struct {
 	writer io.Writer

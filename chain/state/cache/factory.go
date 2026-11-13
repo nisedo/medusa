@@ -20,7 +20,3 @@ func NewPersistentCache(ctx context.Context, rpcAddr string, height uint64) (Sta
 	}
 	return newPersistentCache(ctx, workingDir, rpcAddr, height)
 }
-
-func NewNonPersistentCache() (StateCache, error) {
-	return newNonPersistentStateCache(), nil
-}

@@ -289,25 +289,6 @@ func MutateAbiValue(generator ValueGenerator, mutator ValueMutator, inputType *a
 	}
 }
 
-// EncodeJSONArgumentsToMap encodes provided go-ethereum ABI packable input values into a generic JSON type values
-// (e.g. []any, map[string]any, etc).
-// Returns the encoded values, or an error if one occurs.
-func EncodeJSONArgumentsToMap(inputs abi.Arguments, values []any) (map[string]any, error) {
-	// Create a variable to store encoded arguments, fill it with the respective encoded arguments.
-	var encodedArgs = make(map[string]any)
-	for i, input := range inputs {
-		arg, err := encodeJSONArgument(&input.Type, values[i])
-		if err != nil {
-			err = fmt.Errorf("ABI value argument could not be decoded from JSON: \n"+
-				"name: %v, abi type: %v, value: %v error: %s",
-				input.Name, input.Type, values[i], err)
-			return nil, err
-		}
-		encodedArgs[input.Name] = arg
-	}
-	return encodedArgs, nil
-}
-
 // EncodeJSONArgumentsToSlice encodes provided go-ethereum ABI packable input values into generic JSON compatible values
 // (e.g. []any, map[string]any, etc).
 // Returns the encoded values, or an error if one occurs.

@@ -114,17 +114,6 @@ func MoveFile(sourcePath string, targetPath string) error {
 	return nil
 }
 
-// GetFileNameWithoutExtension obtains a filename without the extension. This does not contain any preceding directory
-// paths.
-func GetFileNameWithoutExtension(filePath string) string {
-	return GetFilePathWithoutExtension(filepath.Base(filePath))
-}
-
-// GetFilePathWithoutExtension obtains a file path without the extension. This retains all preceding directory paths.
-func GetFilePathWithoutExtension(filePath string) string {
-	return filePath[:len(filePath)-len(filepath.Ext(filePath))]
-}
-
 // MakeDirectory creates a directory at the given path, including any parent directories which do not exist.
 // Returns an error, if one occurred.
 func MakeDirectory(dirToMake string) error {

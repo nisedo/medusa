@@ -45,11 +45,11 @@ medusa fuzz --target-contracts MyHarness
 
 `--target-contracts` lists the contracts to deploy and test, by name. They are deployed in that order by the deployer
 address, before any fuzzing. A contract whose constructor takes arguments needs them in `medusa.json` (see
-[`constructorArgs`](./docs/src/project_configuration/fuzzing_config.md#constructorargs)). A name that is not in the
+[`constructorArgs`](./docs/project_configuration/fuzzing_config.md#constructorargs)). A name that is not in the
 compilation is an error. For a single file, add `--compilation-target path/to/File.sol`.
 
 `medusa init` writes a `medusa.json` with every option at its default. With a config file present, flags override it.
-The [configuration reference](./docs/src/project_configuration/overview.md) documents every option.
+The [configuration reference](./docs/project_configuration/overview.md) documents every option.
 
 ### What gets tested
 
@@ -66,7 +66,7 @@ sequence is shrunk to a minimal one.
 
 The cheatcode contract is at `0x7109709ECfa91a80626fF3989D68f67F5b1DD12D`, with a Foundry-style interface
 (`warp`, `roll`, `prank`, `deal`, `store`, `assume`, `expectRevert` and more). The full list is in
-[cheatcodes](./docs/src/cheatcodes/cheatcodes_overview.md).
+[cheatcodes](./docs/cheatcodes/cheatcodes_overview.md).
 
 ### Defaults that matter
 
@@ -82,7 +82,7 @@ The cheatcode contract is at `0x7109709ECfa91a80626fF3989D68f67F5b1DD12D`, with 
 - Console: progress every few seconds, then each test's result, with the shrunk sequence and execution trace of every
   failure.
 - `--results-file <path>`: JSON with the outcome, metrics, every test with its call sequence and structured traces,
-  and line coverage. Its format is in [reporting](./docs/src/testing/reporting.md#results-file).
+  and line coverage. Its format is in [reporting](./docs/testing/reporting.md#results-file).
 - Coverage reports (HTML and LCOV) in `<corpus-dir>/coverage`, or `crytic-export/coverage` without a corpus directory.
 - Build artifacts in the project: `crytic-export/`, and `slither_results.json` when Slither runs.
 
@@ -121,17 +121,17 @@ Two ways to use it:
 - **Any MCP client**, at `http://127.0.0.1:8765/mcp`. For Claude Code:
   `claude mcp add --transport http medusa http://127.0.0.1:8765/mcp`.
 
-The call sequence format and every tool's output are in [MCP server](./docs/src/testing/mcp_server.md).
+The call sequence format and every tool's output are in [MCP server](./docs/testing/mcp_server.md).
 
 ## Reference
 
-- [Configuration](./docs/src/project_configuration/overview.md): every `medusa.json` option, with defaults.
-- [CLI](./docs/src/cli/overview.md): every command and flag.
-- [Cheatcodes](./docs/src/cheatcodes/cheatcodes_overview.md): interface and per-cheatcode behaviour.
-- [Writing function-level](./docs/src/testing/writing-function-level-invariants.md) and
-  [system-level](./docs/src/testing/writing-system-level-invariants.md) invariants: how to write harnesses.
-- [Fuzzing pre-deployed contracts](./docs/src/testing/genesis_state.md): starting from a state snapshot.
-- [Reporting](./docs/src/testing/reporting.md): coverage reports, revert reports and the results file.
+- [Configuration](./docs/project_configuration/overview.md): every `medusa.json` option, with defaults.
+- [CLI](./docs/cli/overview.md): every command and flag.
+- [Cheatcodes](./docs/cheatcodes/cheatcodes_overview.md): interface and per-cheatcode behaviour.
+- [Writing function-level](./docs/testing/writing-function-level-invariants.md) and
+  [system-level](./docs/testing/writing-system-level-invariants.md) invariants: how to write harnesses.
+- [Fuzzing pre-deployed contracts](./docs/testing/genesis_state.md): starting from a state snapshot.
+- [Reporting](./docs/testing/reporting.md): coverage reports, revert reports and the results file.
 
 ## License
 

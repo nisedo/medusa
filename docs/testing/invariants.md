@@ -1,6 +1,6 @@
 # Types of Invariants
 
-As discussed in the [testing overview](./overview.md) chapter, invariants describe the "truths" of your system. These
+Invariants describe the "truths" of your system. These
 are unchanging properties that arise from the design of a codebase.
 
 > **Note**: We will interchange the use of the word property and invariant often. For all intents and purposes, they

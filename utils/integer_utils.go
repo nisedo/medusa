@@ -3,8 +3,6 @@ package utils
 import (
 	"cmp"
 	"math/big"
-
-	"golang.org/x/exp/constraints"
 )
 
 // ConstrainIntegerToBounds takes a provided big integer and minimum/maximum bounds (inclusive) and ensures
@@ -75,23 +73,6 @@ func GetIntegerConstraints(signed bool, bitLength int) (*big.Int, *big.Int) {
 		min = big.NewInt(0)
 	}
 	return min, max
-}
-
-// AbsDiff provides a way of taking the absolute difference between two integers
-func AbsDiff[T constraints.Integer](x T, y T) T {
-	if x >= y {
-		return x - y
-	} else {
-		return y - x
-	}
-}
-
-// Abs provides a way of taking the absolute value of an integer
-func Abs[T constraints.Integer](x T) T {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 // Min provides generic support for various integer types to be compared and the minimum of two values returned.

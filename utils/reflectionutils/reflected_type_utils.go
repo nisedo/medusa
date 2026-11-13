@@ -79,27 +79,3 @@ func GetReflectedArrayValues(reflectedArray reflect.Value) []any {
 	logging.GlobalLogger.Panic("Failed to get reflected array values", fmt.Errorf("type not supported"))
 	return nil
 }
-
-// SetReflectedArrayValues takes an array or slice of the same length as the values provided, and sets each element
-// to the corresponding element of the values provided.
-// Returns an error if one occurred during value setting.
-func SetReflectedArrayValues(reflectedArray reflect.Value, values []any) error {
-	switch reflectedArray.Kind() {
-	case reflect.Slice:
-		fallthrough
-	case reflect.Array:
-		// Validate the length of our array is equal to the length of values provided.
-		if reflectedArray.Len() != len(values) {
-			return fmt.Errorf("failed to set reflected array values, a slice/array of length %v was provided, while %v values were provided", reflectedArray.Len(), len(values))
-		}
-
-		// Set each element in the array to the corresponding element of the values provided.
-		for i := 0; i < len(values); i++ {
-			SetField(reflectedArray.Index(i), values[i])
-		}
-		return nil
-	}
-
-	logging.GlobalLogger.Panic("Failed to set reflected array values", fmt.Errorf("type not supported"))
-	return nil
-}

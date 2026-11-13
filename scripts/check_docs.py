@@ -45,11 +45,11 @@ class DocChecker:
 
         # Check fuzz command flags
         fuzz_flags = self._extract_flags_from_file("cmd/fuzz_flags.go")
-        self._validate_flags_documented(fuzz_flags, "fuzz", "docs/src/cli/fuzz.md")
+        self._validate_flags_documented(fuzz_flags, "fuzz", "docs/cli/fuzz.md")
 
         # Check init command flags
         init_flags = self._extract_flags_from_file("cmd/init_flags.go")
-        self._validate_flags_documented(init_flags, "init", "docs/src/cli/init.md")
+        self._validate_flags_documented(init_flags, "init", "docs/cli/init.md")
 
         print(f"  Found {len(fuzz_flags)} fuzz flags and {len(init_flags)} init flags")
 
@@ -107,7 +107,7 @@ class DocChecker:
         Check that all cheatcodes are documented in the interface.
 
         Parses chain/standard_cheat_code_contract.go to extract cheatcode method names,
-        then validates they appear in the interface at docs/src/cheatcodes/cheatcodes_overview.md.
+        then validates they appear in the interface at docs/cheatcodes/cheatcodes_overview.md.
 
         Note: Uses base method name only (e.g., toString covers all toString overloads).
         The interface is the source of truth - developers may organize documentation however they want.
@@ -147,11 +147,11 @@ class DocChecker:
 
     def _validate_cheatcodes_in_interface(self, base_methods: Set[str]) -> None:
         """Validate cheatcodes appear in the interface definition."""
-        interface_file = self.repo_root / "docs/src/cheatcodes/cheatcodes_overview.md"
+        interface_file = self.repo_root / "docs/cheatcodes/cheatcodes_overview.md"
 
         if not interface_file.exists():
             self.errors.append(
-                "Cheatcode interface file not found: docs/src/cheatcodes/cheatcodes_overview.md"
+                "Cheatcode interface file not found: docs/cheatcodes/cheatcodes_overview.md"
             )
             return
 
@@ -162,7 +162,7 @@ class DocChecker:
             # Look for patterns like: function methodName(
             if f"function {method_name}(" not in interface_content:
                 self.errors.append(
-                    f"Cheatcode '{method_name}' not found in interface at docs/src/cheatcodes/cheatcodes_overview.md"
+                    f"Cheatcode '{method_name}' not found in interface at docs/cheatcodes/cheatcodes_overview.md"
                 )
 
     def check_config_fields(self) -> None:
@@ -179,27 +179,27 @@ class DocChecker:
             (
                 "fuzzing/config/config.go",
                 ["FuzzingConfig"],
-                "docs/src/project_configuration/fuzzing_config.md",
+                "docs/project_configuration/fuzzing_config.md",
             ),
             (
                 "fuzzing/config/config.go",
                 ["TestingConfig", "AssertionTestingConfig", "PropertyTestingConfig", "OptimizationTestingConfig"],
-                "docs/src/project_configuration/testing_config.md",
+                "docs/project_configuration/testing_config.md",
             ),
             (
                 "chain/config/config.go",
                 ["TestChainConfig", "CheatCodeConfig", "ForkConfig"],
-                "docs/src/project_configuration/chain_config.md",
+                "docs/project_configuration/chain_config.md",
             ),
             (
                 "compilation/compilation_config.go",
                 ["CompilationConfig"],
-                "docs/src/project_configuration/compilation_config.md",
+                "docs/project_configuration/compilation_config.md",
             ),
             (
                 "fuzzing/config/config.go",
                 ["LoggingConfig"],
-                "docs/src/project_configuration/logging_config.md",
+                "docs/project_configuration/logging_config.md",
             ),
         ]
 

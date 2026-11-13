@@ -125,13 +125,6 @@ Three built-in test case providers run concurrently:
 - `go test -v ./fuzzing/...` - Target specific packages
 - `go test -v -run TestName ./package/...` - Run a specific unit test
 
-### Corpus Analysis
-
-Explicitly ask the user if these scripts should be run. In more cases than not, these scripts don't need to be touched.
-
-- Use `python3 scripts/corpus_diff.py old new` to compare corpora and identify method coverage differences
-- Use `python3 scripts/corpus_stats.py corpus` to generate statistics (sequence count, average length, method frequency)
-
 ## Workflow
 
 This is a personal fork (`nisedo/medusa`, branch `nisedo-dev`), used only by its owner on macOS. There is no CI, no

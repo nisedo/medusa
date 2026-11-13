@@ -57,31 +57,6 @@ func NewRPCBackend(
 	}, nil
 }
 
-// newRPCBackendNoPersistence creates a new RPC backend that will not persist its cache to disk. used for tests.
-// nolint:unused
-func newRPCBackendNoPersistence(
-	ctx context.Context,
-	url string,
-	height uint64,
-	poolSize uint) (*RPCBackend, error) {
-	clientPool, err := rpc.NewClientPool(url, poolSize)
-	if err != nil {
-		return nil, err
-	}
-
-	cache, err := cache.NewNonPersistentCache()
-	if err != nil {
-		return nil, err
-	}
-
-	return &RPCBackend{
-		context:    ctx,
-		clientPool: clientPool,
-		height:     hexutil.Uint64(height).String(),
-		cache:      cache,
-	}, nil
-}
-
 /*
 GetStorageAt returns data stored in the remote RPC for the given address/slot.
 Note that Ethereum RPC will return zero for slots that have never been written to or are associated with undeployed
