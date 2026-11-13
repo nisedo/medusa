@@ -68,6 +68,10 @@ type FuzzingConfig struct {
 	// the in-memory corpus will be used, but will not be flushed to disk.
 	CorpusDirectory string `json:"corpusDirectory"`
 
+	// ResultsFile describes the path of a JSON file to write a machine-readable report of the campaign to when it
+	// ends: its outcome, metrics, test results with execution traces, and coverage. If empty, no file is written.
+	ResultsFile string `json:"resultsFile"`
+
 	// CoverageEnabled describes whether to use coverage-guided fuzzing
 	CoverageEnabled bool `json:"coverageEnabled"`
 

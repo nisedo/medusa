@@ -7,6 +7,7 @@
     "callSequenceLength": 100,
     "pruneFrequency": 5,
     "corpusDirectory": "",
+    "resultsFile": "",
     "coverageEnabled": true,
     "targetContracts": ["TestDepositContract"],
     "targetContractsBalances": ["21267647932558653966460912964485513215"],
