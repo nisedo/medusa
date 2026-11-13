@@ -49,7 +49,6 @@ func startCampaign(t *testing.T, contractPath string) (*fuzzing.Fuzzer, func()) 
 	projectConfig.Fuzzing.CallSequenceLength = 10
 	projectConfig.Fuzzing.CoverageFormats = []string{}
 	projectConfig.Fuzzing.Testing.StopOnFailedTest = false
-	projectConfig.Fuzzing.Testing.PropertyTesting.Enabled = false
 	projectConfig.Fuzzing.Testing.OptimizationTesting.Enabled = false
 
 	fuzzer, err := fuzzing.NewFuzzer(*projectConfig)
@@ -87,8 +86,14 @@ type sequenceOutput struct {
 	Calls []struct {
 		Trace *executiontracer.TraceCall `json:"trace"`
 	} `json:"calls"`
-	NewCoverage   []bool `json:"newCoverage"`
-	AddedToCorpus bool   `json:"addedToCorpus"`
+	NewCoverage []bool `json:"newCoverage"`
+	FailedTests []struct {
+		Type      report.TestType            `json:"type"`
+		Name      string                     `json:"name"`
+		AfterCall int                        `json:"afterCall"`
+		Trace     *executiontracer.TraceCall `json:"trace"`
+	} `json:"failedTests"`
+	AddedToCorpus bool `json:"addedToCorpus"`
 }
 
 // TestServerTools drives a running campaign through every tool, the way an agent would: it finds code the fuzzer
@@ -127,7 +132,7 @@ func TestServerTools(t *testing.T) {
 		for _, method := range target.Contracts[0].Methods {
 			signatures = append(signatures, method.Signature)
 		}
-		assert.Equal(t, []string{"checkLocked()", "unlock(uint256)", "unlocked()"}, signatures)
+		assert.Equal(t, []string{"afterTenDays()", "checkLocked()", "property_locked()", "unlock(uint256)", "unlocked()"}, signatures)
 		assert.NotEmpty(t, target.Senders)
 
 		// coverage: the fuzzer cannot guess the key, so the line which unlocks is never executed.
@@ -161,6 +166,16 @@ func TestServerTools(t *testing.T) {
 		assert.Equal(t, executiontracer.TraceCallStatusPanic, executed.Calls[1].Trace.Status)
 		assert.Equal(t, "panic: assertion failed", executed.Calls[1].Trace.Error)
 
+		// The tests the sequence fails are reported: the property after the first call, the assertion after the second.
+		require.Len(t, executed.FailedTests, 2)
+		assert.Equal(t, report.TestTypeProperty, executed.FailedTests[0].Type)
+		assert.Equal(t, 1, executed.FailedTests[0].AfterCall)
+		require.NotNil(t, executed.FailedTests[0].Trace)
+		assert.Equal(t, "property_locked()", executed.FailedTests[0].Trace.Method)
+		assert.Equal(t, report.TestTypeAssertion, executed.FailedTests[1].Type)
+		assert.Equal(t, 2, executed.FailedTests[1].AfterCall)
+		assert.Contains(t, executed.FailedTests[1].Name, "checkLocked()")
+
 		// Executing a sequence changes nothing: the same sequence still reaches new code, and no test failed.
 		require.Empty(t, callTool(t, session, "execute_sequence", sequence, &executed))
 		assert.Equal(t, []bool{true, true}, executed.NewCoverage)
@@ -176,6 +191,15 @@ func TestServerTools(t *testing.T) {
 		}}, &wrongKey))
 		assert.Equal(t, executiontracer.TraceCallStatusSuccess, wrongKey.Calls[1].Trace.Status)
 
+		// A timestamp delay applies even without a block number delay.
+		var delayed sequenceOutput
+		require.Empty(t, callTool(t, session, "execute_sequence", map[string]any{"calls": []map[string]any{
+			{"contract": "TestContract", "method": "afterTenDays"},
+			{"contract": "TestContract", "method": "afterTenDays", "blockTimestampDelay": 10 * 24 * 60 * 60},
+		}}, &delayed))
+		assert.Equal(t, "too early", delayed.Calls[0].Trace.Error)
+		assert.Equal(t, executiontracer.TraceCallStatusSuccess, delayed.Calls[1].Trace.Status)
+
 		// Mistakes are reported as tool errors which say what to do instead.
 		for arguments, expectedError := range map[string]string{
 			`{"calls":[{"contract":"Missing","method":"unlock"}]}`:                                    `no contract named "Missing" is deployed; deployed contracts: TestContract`,
@@ -189,7 +213,7 @@ func TestServerTools(t *testing.T) {
 		assert.Contains(t, callTool(t, session, "tests", map[string]any{"status": "broken"}, &failedTests), "unknown status")
 		assert.Contains(t, callTool(t, session, "add_sequence", map[string]any{"calls": []any{}}, &executed), "at least one call")
 
-		// add_sequence: the sequence is added to the corpus once, and a worker replays it, which fails the test.
+		// add_sequence: the sequence is added to the corpus once, and a worker replays it, which fails both tests.
 		var added sequenceOutput
 		require.Empty(t, callTool(t, session, "add_sequence", sequence, &added))
 		assert.True(t, added.AddedToCorpus)
@@ -197,19 +221,23 @@ func TestServerTools(t *testing.T) {
 		assert.False(t, added.AddedToCorpus, "the corpus already has the sequence")
 		require.Eventually(t, func() bool {
 			failedTests = testsOutput{}
-			return callTool(t, session, "tests", map[string]any{"status": "failed"}, &failedTests) == "" && len(failedTests.Tests) == 1
-		}, time.Minute, 50*time.Millisecond, "the added sequence did not fail the assertion test")
-		assert.Equal(t, report.TestTypeAssertion, failedTests.Tests[0].Type)
-		assert.Equal(t, "checkLocked()", failedTests.Tests[0].Method)
-		assert.NotEmpty(t, failedTests.Tests[0].CallSequence)
+			return callTool(t, session, "tests", map[string]any{"status": "failed"}, &failedTests) == "" && len(failedTests.Tests) == 2
+		}, time.Minute, 50*time.Millisecond, "the added sequence did not fail both tests")
+		for _, test := range failedTests.Tests {
+			assert.NotEmpty(t, test.CallSequence)
+			assert.LessOrEqual(t, len(test.CallSequence), 2, "the failing call sequence of %s was not shrunk", test.Method)
+		}
 
 		// The replay recorded the coverage, so the sequence no longer reaches new code.
 		require.Eventually(t, func() bool {
 			return callTool(t, session, "execute_sequence", sequence, &executed) == "" && !executed.NewCoverage[0] && !executed.NewCoverage[1]
 		}, time.Minute, 50*time.Millisecond, "the coverage of the added sequence was not recorded")
 		require.Empty(t, callTool(t, session, "status", nil, &status))
-		assert.Equal(t, 1, status.Tests[report.TestStatusFailed])
+		assert.Equal(t, 2, status.Tests[report.TestStatusFailed])
 		assert.NotNil(t, status.Metrics.LastNewCoverageAt)
+
+		// Other workers keep reaching the failures from the corpus, but only one shrinks each.
+		assert.EqualValues(t, 2, status.Metrics.FailedTests)
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/crytic/medusa-geth/core"
+	"github.com/crytic/medusa/chain"
 	"github.com/crytic/medusa/fuzzing/calls"
 	"github.com/crytic/medusa/fuzzing/config"
 	"github.com/crytic/medusa/fuzzing/contracts"
@@ -67,12 +68,20 @@ func attachPropertyTestCaseProvider(fuzzer *Fuzzer) *PropertyTestCaseProvider {
 	return t
 }
 
-// checkPropertyTestFailed executes a given property test method to see if it returns a failed status. This is used to
-// facilitate testing of property test methods after every call the Fuzzer makes when testing call sequences.
-// A boolean indicating whether an execution trace should be captured and returned is provided to the method.
-// Returns a boolean indicating if the property test failed, an optional execution trace for the property test call,
-// or an error if one occurred.
+// checkPropertyTestFailed executes a given property test method on the worker's chain to see if it returns a failed
+// status. This is used to facilitate testing of property tests within a CallSequenceTestFunc registered with the
+// Fuzzer.
+// Returns a boolean indicating if the property test failed, an execution trace if one was requested, or an error if
+// one occurred.
 func (t *PropertyTestCaseProvider) checkPropertyTestFailed(worker *FuzzerWorker, propertyTestMethod *contracts.DeployedContractMethod, trace bool) (bool, *executiontracer.ExecutionTrace, error) {
+	return propertyTestFailed(worker.fuzzer, worker.chain, propertyTestMethod, trace)
+}
+
+// propertyTestFailed executes a given property test method on the provided chain, with the provided Fuzzer's
+// configuration, to see if it returns a failed status. The call does not change the chain.
+// Returns a boolean indicating if the property test failed, an execution trace if one was requested, or an error if
+// one occurred.
+func propertyTestFailed(fuzzer *Fuzzer, testChain *chain.TestChain, propertyTestMethod *contracts.DeployedContractMethod, trace bool) (bool, *executiontracer.ExecutionTrace, error) {
 	// Generate our ABI input data for the call. In this case, property test methods take no arguments, so the
 	// variadic argument list here is empty.
 	data, err := propertyTestMethod.Contract.CompiledContract().Abi.Pack(propertyTestMethod.Method.Name)
@@ -81,17 +90,16 @@ func (t *PropertyTestCaseProvider) checkPropertyTestFailed(worker *FuzzerWorker,
 	}
 
 	// Create a call targeting our property test method
-	// TODO: Determine if we should use `Senders[0]` or have a separate funded account for the assertions.
-	msg := calls.NewCallMessage(worker.Fuzzer().senders[0], &propertyTestMethod.Address, 0, big.NewInt(0), worker.fuzzer.config.Fuzzing.TransactionGasLimit, nil, nil, nil, data)
-	msg.FillFromTestChainProperties(worker.chain)
+	msg := calls.NewCallMessage(fuzzer.senders[0], &propertyTestMethod.Address, 0, big.NewInt(0), fuzzer.config.Fuzzing.TransactionGasLimit, nil, nil, nil, data)
+	msg.FillFromTestChainProperties(testChain)
 
 	// Execute the call. If we are tracing, we attach an execution tracer and obtain the result.
 	var executionResult *core.ExecutionResult
 	var executionTrace *executiontracer.ExecutionTrace
 	if trace {
-		executionResult, executionTrace, err = executiontracer.CallWithExecutionTrace(worker.chain, worker.fuzzer.contractDefinitions, msg.ToCoreMessage(), nil, worker.fuzzer.config.Fuzzing.Testing.Verbosity)
+		executionResult, executionTrace, err = executiontracer.CallWithExecutionTrace(testChain, fuzzer.contractDefinitions, msg.ToCoreMessage(), nil, fuzzer.config.Fuzzing.Testing.Verbosity)
 	} else {
-		executionResult, err = worker.Chain().CallContract(msg.ToCoreMessage(), nil)
+		executionResult, err = testChain.CallContract(msg.ToCoreMessage(), nil)
 	}
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to call property test method: %v", err)
@@ -275,8 +283,8 @@ func (t *PropertyTestCaseProvider) callSequencePostCallTest(worker *FuzzerWorker
 		testCase := t.testCases[propertyTestMethodId]
 		t.testCasesLock.Unlock()
 
-		// If the test case already failed, skip it
-		if testCase.Status() == TestCaseStatusFailed {
+		// If a failure of the test was already found, skip it
+		if testCase.failureFound() {
 			continue
 		}
 
@@ -289,7 +297,7 @@ func (t *PropertyTestCaseProvider) callSequencePostCallTest(worker *FuzzerWorker
 
 		// If we failed a test, we update our state immediately. We provide a shrink verifier which will update
 		// the call sequence for each shrunken sequence provided that fails the property test.
-		if failedPropertyTest {
+		if failedPropertyTest && testCase.claimFailure() {
 			// Create a request to shrink this call sequence.
 			shrinkRequest := ShrinkCallSequenceRequest{
 				TestName:             testCase.Name(),

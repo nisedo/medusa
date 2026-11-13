@@ -12,4 +12,16 @@ contract TestContract {
     function checkLocked() public view {
         assert(!unlocked);
     }
+
+    // The same check as a property test.
+    function property_locked() public view returns (bool) {
+        return !unlocked;
+    }
+
+    // Only succeeds ten days after deployment, longer than the fuzzer's default maximum delay between two calls.
+    uint256 immutable deployedAt = block.timestamp;
+
+    function afterTenDays() public view {
+        require(block.timestamp >= deployedAt + 10 days, "too early");
+    }
 }

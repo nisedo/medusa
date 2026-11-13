@@ -57,19 +57,19 @@ func (t *AssertionTestCaseProvider) checkAssertionFailures(callSequence calls.Ca
 	}
 	methodId := contracts.GetContractMethodID(lastCall.Contract, lastCallMethod)
 
-	// Check if we encountered an enabled panic code.
+	return &methodId, callFailedAssertion(lastCall, t.fuzzer.config.Fuzzing.Testing.AssertionTesting.PanicCodeConfig), nil
+}
+
+// callFailedAssertion indicates whether an executed call ended with a panic which the provided configuration treats as
+// a failed assertion test.
+func callFailedAssertion(element *calls.CallSequenceElement, panicCodeConfig config.PanicCodeConfig) bool {
 	// Try to unpack our error and return data for a panic code and verify that panic code should be treated as a failing case.
 	// Solidity >0.8.0 introduced asserts failing as reverts but with special return data. But we indicate we also
 	// want to be backwards compatible with older Solidity which simply hit an invalid opcode and did not actually
 	// have a panic code.
-	lastExecutionResult := lastCall.ChainReference.MessageResults().ExecutionResult
-	panicCode := abiutils.GetSolidityPanicCode(lastExecutionResult.Err, lastExecutionResult.ReturnData, true)
-	failure := false
-	if panicCode != nil {
-		failure = encounteredAssertionFailure(panicCode.Uint64(), t.fuzzer.config.Fuzzing.Testing.AssertionTesting.PanicCodeConfig)
-	}
-
-	return &methodId, failure, nil
+	executionResult := element.ChainReference.MessageResults().ExecutionResult
+	panicCode := abiutils.GetSolidityPanicCode(executionResult.Err, executionResult.ReturnData, true)
+	return panicCode != nil && encounteredAssertionFailure(panicCode.Uint64(), panicCodeConfig)
 }
 
 // onFuzzerStarting is the event handler triggered when the Fuzzer is starting a fuzzing campaign. It creates test cases
@@ -176,14 +176,14 @@ func (t *AssertionTestCaseProvider) callSequencePostCallTest(worker *FuzzerWorke
 		return shrinkRequests, nil
 	}
 
-	// If the test case already failed, skip it
-	if testCase.Status() == TestCaseStatusFailed {
+	// If a failure of the test was already found, skip it
+	if testCase.failureFound() {
 		return shrinkRequests, nil
 	}
 
-	// If we failed a test, we update our state immediately. We provide a shrink verifier which will update
-	// the call sequence for each shrunken sequence provided that fails the test.
-	if testFailed {
+	// If we failed a test and are the first worker to do so, we shrink the call sequence. We provide a shrink
+	// verifier which will update the call sequence for each shrunken sequence provided that fails the test.
+	if testFailed && testCase.claimFailure() {
 		// Create a request to shrink this call sequence.
 		shrinkRequest := ShrinkCallSequenceRequest{
 			TestName:             testCase.Name(),

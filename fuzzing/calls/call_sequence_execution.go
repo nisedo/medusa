@@ -57,15 +57,13 @@ func ExecuteCallSequenceIteratively(chain *chain.TestChain, fetchElementFunc Exe
 		//   if possible, we edit the block number and timestamp directly, same as the cheatcodes do it;
 		//   otherwise, we commit the pending block and start a new one.
 		// If we have a pending contract creation or deletion, we need to commit the pending block to finalize the creation/deletion.
-		if chain.PendingBlock() != nil && callSequenceElement.BlockNumberDelay > 0 {
+		// A timestamp delay alone also needs a new block, as all calls in a block share its timestamp.
+		if chain.PendingBlock() != nil && (callSequenceElement.BlockNumberDelay > 0 || callSequenceElement.BlockTimestampDelay > 0) {
 			if !chain.HasPendingStateChanges() && chain.PendingBlockContext() != nil {
 				// The minimum step between blocks must be 1 in block number and timestamp, so we ensure this is the
 				// case.
-				numberDelay := callSequenceElement.BlockNumberDelay
-				timeDelay := callSequenceElement.BlockTimestampDelay
-				if timeDelay == 0 {
-					timeDelay = 1
-				}
+				numberDelay := max(callSequenceElement.BlockNumberDelay, 1)
+				timeDelay := max(callSequenceElement.BlockTimestampDelay, 1)
 				// Each timestamp/block number must be unique as well, so we cannot jump more block numbers than time.
 				if numberDelay > timeDelay {
 					numberDelay = timeDelay

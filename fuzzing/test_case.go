@@ -58,6 +58,9 @@ type testCaseState struct {
 	callSequence *calls.CallSequence
 	// trace describes the execution trace of the test when run after callSequence, if one was recorded.
 	trace *executiontracer.ExecutionTrace
+	// failureClaimed indicates a worker found a call sequence which fails the test and is shrinking it. The status
+	// only becomes failed once shrinking finishes, so this stops other workers from shrinking the same failure.
+	failureClaimed bool
 }
 
 // Status describes the TestCaseStatus used to define the current state of the test.
@@ -84,6 +87,27 @@ func (s *testCaseState) transitionStatus(from TestCaseStatus, to TestCaseStatus)
 		return false
 	}
 	s.status = to
+	return true
+}
+
+// failureFound indicates whether a call sequence which fails the test has been found, whether or not it has finished
+// shrinking.
+func (s *testCaseState) failureFound() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.failureClaimed || s.status == TestCaseStatusFailed
+}
+
+// claimFailure claims the failure of the test for the calling worker, which then shrinks the failing call sequence
+// and calls setFailed with the result. Only one worker can claim the failure of a test.
+// Returns true if the caller claimed the failure, or false if another worker already did.
+func (s *testCaseState) claimFailure() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.failureClaimed || s.status == TestCaseStatusFailed {
+		return false
+	}
+	s.failureClaimed = true
 	return true
 }
 

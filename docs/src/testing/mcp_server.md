@@ -16,9 +16,26 @@ medusa fuzz --mcp-port 8765
 ```
 
 The server is available at `http://127.0.0.1:8765/mcp` for as long as the campaign runs. To let an agent work for a
-while, run the campaign without a test limit or timeout.
+while, run the campaign until you stop it, and keep it running after a test fails:
 
-To connect Claude Code:
+```shell
+medusa fuzz --mcp-port 8765 --fail-fast=false --timeout 0 --test-limit 0
+```
+
+Stopping it with Ctrl-C or a termination signal ends the campaign gracefully: the corpus is saved and the results file
+is written.
+
+## Using it with Claude Code
+
+This repository includes a Claude Code skill, `medusa-campaign` in `.claude/skills/`, which tells an agent how to
+start a campaign, find what it has not reached, and unblock it. It calls the server through a small script, so no MCP
+client setup is needed. To use it in every project, link it into your personal skills:
+
+```shell
+ln -s "$PWD/.claude/skills/medusa-campaign" ~/.claude/skills/medusa-campaign
+```
+
+To connect Claude Code to the server directly instead:
 
 ```shell
 claude mcp add --transport http medusa http://127.0.0.1:8765/mcp
@@ -26,14 +43,14 @@ claude mcp add --transport http medusa http://127.0.0.1:8765/mcp
 
 ## Tools
 
-| Tool               | What it does                                                                            |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| `status`           | How the campaign is going: metrics, when coverage last increased, and tests by status   |
-| `target`           | The deployed contracts and methods a call sequence can call, and the sender addresses   |
-| `tests`            | The tests, with the call sequence and execution trace of each failed one                |
-| `coverage`         | The lines and functions never reached, per file. With a `file`, its source line by line |
-| `execute_sequence` | Runs a call sequence and reports what each call did. Changes nothing                    |
-| `add_sequence`     | Runs a call sequence, then adds it to the corpus for the fuzzer to test and mutate      |
+| Tool               | What it does                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `status`           | How the campaign is going: metrics, when coverage last increased, and tests by status         |
+| `target`           | The deployed contracts and methods a call sequence can call, and the sender addresses         |
+| `tests`            | The tests, with the call sequence and execution trace of each failed one                      |
+| `coverage`         | The lines and functions never reached, per file. With a `file`, its source line by line       |
+| `execute_sequence` | Runs a call sequence and reports what each call did and which tests it fails. Changes nothing |
+| `add_sequence`     | Runs a call sequence, then adds it to the corpus for the fuzzer to test and mutate            |
 
 The outputs of `tests`, `execute_sequence` and `add_sequence` use the same test, call and trace format as the
 [results file](./reporting.md#results-file).
@@ -82,12 +99,16 @@ Arguments are written as JSON:
 
 Every sequence starts from the state the fuzzer's own sequences start from: right after deployment.
 
-`execute_sequence` reports, for each call, its execution trace and whether it reached code the corpus has not. It
-does not record coverage, change the corpus or run tests.
+`execute_sequence` reports, for each call, its execution trace and whether it reached code the corpus has not
+(`newCoverage`, one flag per call). It also checks the assertion and property tests after each call, as the fuzzer
+does, and lists the ones the sequence fails in `failedTests`, with the call after which each fails. It does not
+record coverage, change the corpus or record test results.
 
 `add_sequence` does the same, then adds the sequence to the corpus. A fuzzer worker replays it shortly after, which
-runs every test against it, records its coverage and makes it a starting point for mutations. If it fails a test, the
-failure shows up in `tests`.
+records its coverage and any test it fails, and makes it a starting point for mutations. A test it fails shows up in
+`tests`.
+
+Property and optimization test methods are called outside transactions, so `coverage` never marks them as reached.
 
 ## Security
 

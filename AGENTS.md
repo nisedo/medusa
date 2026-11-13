@@ -154,6 +154,13 @@ branch protection and no pull request process.
 - Do not run `go mod tidy`: it removes the security minimums block at the end of `go.mod`. Add a dependency with
   `go get <module>@<version>` instead.
 
+### The medusa-campaign Skill
+
+`.claude/skills/medusa-campaign/` is a Claude Code skill that drives a campaign through the MCP server
+(`fuzzing/mcpserver/`). It is linked from `~/.claude/skills/medusa-campaign`, so every project uses this copy.
+Whenever a change affects how an agent uses medusa (MCP tools or their inputs and outputs, `fuzz` flags, the results
+file, the call sequence format), update `SKILL.md` and `scripts/medusa_mcp.py` in the same commit.
+
 ### Before Pushing
 
 Nothing checks a change after it is pushed, so run these first:
@@ -164,3 +171,6 @@ Nothing checks a change after it is pushed, so run these first:
 4. `python3 scripts/check_docs.py`
 5. `go test ./...` - Takes about five minutes
 6. `go test -race ./...` - For changes to anything shared between workers (about twelve minutes)
+
+After pushing, run `go install .` so the `medusa` command (`~/go/bin/medusa`) is the build just pushed. It is the only
+medusa installed.

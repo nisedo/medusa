@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/crytic/medusa/cmd/exitcodes"
 	"github.com/crytic/medusa/logging/colors"
@@ -168,9 +169,11 @@ func cmdRunFuzz(cmd *cobra.Command, args []string) error {
 		cmdLogger.Info("MCP server listening at ", colors.Bold, "http://", address.String(), mcpserver.Path, colors.Reset)
 	}
 
-	// Stop our fuzzing on keyboard interrupts
+	// Stop fuzzing on a keyboard interrupt, or on a termination request such as the one a process manager or an
+	// agent sends to stop a background campaign. Either way the campaign ends gracefully: the corpus is saved and the
+	// results file is written.
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		fuzzer.Terminate()

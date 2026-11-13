@@ -26,9 +26,10 @@ const instructions = `This server controls a running medusa fuzzing campaign for
 
 A typical loop: call "status" to see whether coverage has stalled, "coverage" to find functions and lines which
 were never reached, "target" for the contracts and methods you can call, then "execute_sequence" to try a call
-sequence aimed at the unreached code and read its trace. Once a sequence reaches new code, pass it to
-"add_sequence" so the fuzzer mutates it and runs every test against it. Use "tests" to read failed tests with the
-call sequence and trace that failed them.`
+sequence aimed at the unreached code: it shows each call's trace and the tests the sequence fails. Once a sequence
+reaches new code, pass it to "add_sequence" so the fuzzer mutates it and records what it finds. Use "tests" to read
+failed tests with the call sequence and trace that failed them. Property and optimization test methods run outside
+transactions, so "coverage" never marks them as reached.`
 
 // Server serves the MCP tools of a Fuzzer.
 type Server struct {
@@ -77,9 +78,9 @@ func New(fuzzer *fuzzing.Fuzzer, version string) *Server {
 		Name:        "execute_sequence",
 		Annotations: readOnly,
 		Description: "Run a sequence of calls from the state every fuzzed sequence starts from, and report what each " +
-			"call did: its execution trace, and whether it reached code the corpus has not. Nothing is changed: no " +
-			"coverage is recorded, nothing is added to the corpus and no test is run. Use it to check a sequence " +
-			"does what you intend before adding it.",
+			"call did (its execution trace, and whether it reached code the corpus has not) and which assertion and " +
+			"property tests the sequence fails. Nothing is changed: no coverage, corpus entry or test result is " +
+			"recorded. Use it to check a sequence does what you intend before adding it.",
 	}, server.executeSequence)
 	mcp.AddTool(server.mcpServer, &mcp.Tool{
 		Name: "add_sequence",

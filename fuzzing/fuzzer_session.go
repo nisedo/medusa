@@ -63,9 +63,33 @@ type SequenceResult struct {
 	// NewCoverage lists, for each call, whether it reached code no call sequence in the corpus has reached.
 	NewCoverage []bool `json:"newCoverage"`
 
+	// FailedTests lists the assertion and property tests the call sequence fails, checked after each call as the
+	// fuzzer does. A test is listed once, at the first call after which it fails.
+	FailedTests []SequenceTestFailure `json:"failedTests"`
+
 	// AddedToCorpus indicates whether the call sequence was added to the corpus. It is always false for a call
 	// sequence which was only executed, and for one the corpus already had.
 	AddedToCorpus bool `json:"addedToCorpus"`
+}
+
+// SequenceTestFailure describes a test which a call sequence fails.
+type SequenceTestFailure struct {
+	// ID is the identifier of the test, as in the campaign report.
+	ID string `json:"id"`
+
+	// Type is the kind of the test: assertion or property.
+	Type report.TestType `json:"type"`
+
+	// Name is the display name of the test.
+	Name string `json:"name"`
+
+	// AfterCall is the 1-based number of the call after which the test fails. For an assertion test, it is the call
+	// which triggered the failure.
+	AfterCall int `json:"afterCall"`
+
+	// Trace is the execution trace of the property method when it failed. It is only set for property tests; an
+	// assertion failure shows in the trace of the call itself.
+	Trace *executiontracer.ExecutionTrace `json:"trace,omitempty"`
 }
 
 // sequenceSession executes call sequences supplied from outside the fuzzer, on its own copy of the chain. It exists
@@ -154,7 +178,7 @@ func (s *sequenceSession) execute(inputs []CallInput) (*SequenceResult, calls.Ca
 	}
 
 	// Execute the calls with an execution tracer attached, filling in chain-dependent fields (e.g. the nonce) as
-	// each call is reached. The chain is reverted however this ends.
+	// each call is reached, and check the tests after each call. The chain is reverted however this ends.
 	executionTracer := executiontracer.NewExecutionTracer(s.fuzzer.contractDefinitions, s.chain, config.VeryVeryVerbose)
 	defer executionTracer.Close()
 	fetchElementFunc := func(currentIndex int) (*calls.CallSequenceElement, error) {
@@ -164,7 +188,11 @@ func (s *sequenceSession) execute(inputs []CallInput) (*SequenceResult, calls.Ca
 		callSequence[currentIndex].Call.FillFromTestChainProperties(s.chain)
 		return callSequence[currentIndex], nil
 	}
-	executedSequence, err := calls.ExecuteCallSequenceIteratively(s.chain, fetchElementFunc, nil, executionTracer.NativeTracer())
+	testChecker := s.newTestChecker()
+	executionCheckFunc := func(executedSequence calls.CallSequence) (bool, error) {
+		return false, testChecker.check(executedSequence)
+	}
+	executedSequence, err := calls.ExecuteCallSequenceIteratively(s.chain, fetchElementFunc, executionCheckFunc, executionTracer.NativeTracer())
 	if revertErr := s.chain.RevertToBlockIndex(s.baseBlockIndex); err == nil {
 		err = revertErr
 	}
@@ -173,7 +201,7 @@ func (s *sequenceSession) execute(inputs []CallInput) (*SequenceResult, calls.Ca
 	}
 
 	// Describe each call: its execution trace, and whether it reached code the corpus has not.
-	result := &SequenceResult{NewCoverage: make([]bool, len(executedSequence))}
+	result := &SequenceResult{NewCoverage: make([]bool, len(executedSequence)), FailedTests: testChecker.failures}
 	corpusCoverageMaps := s.fuzzer.corpus.CoverageMaps()
 	for i, element := range executedSequence {
 		element.ExecutionTrace = executionTracer.GetTrace(utils.MessageToTransaction(element.Call.ToCoreMessage()).Hash())
@@ -182,6 +210,98 @@ func (s *sequenceSession) execute(inputs []CallInput) (*SequenceResult, calls.Ca
 	}
 	result.Calls = report.NewCalls(executedSequence)
 	return result, executedSequence, nil
+}
+
+// sequenceTestChecker checks the campaign's assertion and property tests after each call of a call sequence, the way
+// the fuzzer's test providers do, and records the tests the sequence fails.
+type sequenceTestChecker struct {
+	// session is the session whose chain the call sequence executes on.
+	session *sequenceSession
+	// assertionTests maps the contract-method ID of each assertion test to the test.
+	assertionTests map[fuzzerTypes.ContractMethodID]*AssertionTestCase
+	// propertyTests lists each property test with the deployed method to call for it.
+	propertyTests []sequencePropertyTest
+	// failures lists the tests the call sequence fails, in the order found.
+	failures []SequenceTestFailure
+	// failed holds the IDs of the tests in failures.
+	failed map[string]bool
+}
+
+// sequencePropertyTest is a property test and the deployed method to call to check it.
+type sequencePropertyTest struct {
+	// testCase is the property test.
+	testCase *PropertyTestCase
+	// method is the deployed property method.
+	method fuzzerTypes.DeployedContractMethod
+}
+
+// newTestChecker creates a sequenceTestChecker for the campaign's current tests and the session's deployed contracts.
+func (s *sequenceSession) newTestChecker() *sequenceTestChecker {
+	checker := &sequenceTestChecker{
+		session:        s,
+		assertionTests: make(map[fuzzerTypes.ContractMethodID]*AssertionTestCase),
+		failures:       make([]SequenceTestFailure, 0),
+		failed:         make(map[string]bool),
+	}
+	for _, testCase := range s.fuzzer.TestCases() {
+		switch testCase := testCase.(type) {
+		case *AssertionTestCase:
+			checker.assertionTests[fuzzerTypes.GetContractMethodID(testCase.targetContract, &testCase.targetMethod)] = testCase
+		case *PropertyTestCase:
+			// A property test is checked on every deployment of its contract.
+			for address, contract := range s.deployedContracts {
+				if contract == testCase.targetContract {
+					checker.propertyTests = append(checker.propertyTests, sequencePropertyTest{
+						testCase: testCase,
+						method:   fuzzerTypes.DeployedContractMethod{Address: address, Contract: contract, Method: testCase.targetMethod},
+					})
+				}
+			}
+		}
+	}
+	return checker
+}
+
+// check checks the tests after the last call of the provided executed call sequence.
+// Returns an error if a property test could not be evaluated.
+func (c *sequenceTestChecker) check(executedSequence calls.CallSequence) error {
+	afterCall := len(executedSequence)
+	lastCall := executedSequence[afterCall-1]
+
+	// An assertion test fails when a call to its method ends with a configured panic.
+	if method, err := lastCall.Method(); err == nil && lastCall.Contract != nil {
+		testCase, isTested := c.assertionTests[fuzzerTypes.GetContractMethodID(lastCall.Contract, method)]
+		panicCodeConfig := c.session.fuzzer.config.Fuzzing.Testing.AssertionTesting.PanicCodeConfig
+		if isTested && !c.failed[testCase.ID()] && callFailedAssertion(lastCall, panicCodeConfig) {
+			c.record(SequenceTestFailure{ID: testCase.ID(), Type: report.TestTypeAssertion, Name: testCase.Name(), AfterCall: afterCall})
+		}
+	}
+
+	// A property test fails when its method returns false or reverts. Its trace is only recorded once it fails.
+	for _, propertyTest := range c.propertyTests {
+		if c.failed[propertyTest.testCase.ID()] {
+			continue
+		}
+		failed, _, err := propertyTestFailed(c.session.fuzzer, c.session.chain, &propertyTest.method, false)
+		if err != nil {
+			return err
+		}
+		if !failed {
+			continue
+		}
+		_, trace, err := propertyTestFailed(c.session.fuzzer, c.session.chain, &propertyTest.method, true)
+		if err != nil {
+			return err
+		}
+		c.record(SequenceTestFailure{ID: propertyTest.testCase.ID(), Type: report.TestTypeProperty, Name: propertyTest.testCase.Name(), AfterCall: afterCall, Trace: trace})
+	}
+	return nil
+}
+
+// record records a test the call sequence fails.
+func (c *sequenceTestChecker) record(failure SequenceTestFailure) {
+	c.failed[failure.ID] = true
+	c.failures = append(c.failures, failure)
 }
 
 // buildElement builds the call sequence element described by the provided input.
@@ -405,7 +525,8 @@ func (f *Fuzzer) DeployedContracts() ([]DeployedContract, error) {
 }
 
 // ExecuteSequence executes the provided call sequence against the running fuzzing campaign's contracts, and reports
-// what each call did. It changes nothing: no coverage is recorded, nothing is added to the corpus and no test is run.
+// what each call did and which assertion and property tests it fails. It changes nothing: no coverage is recorded,
+// nothing is added to the corpus and no test result is recorded.
 // It can be called from any goroutine while the campaign is running.
 // Returns ErrNoCampaignRunning if no fuzzing campaign is running, or an error if a call cannot be built or executed.
 func (f *Fuzzer) ExecuteSequence(inputs []CallInput) (*SequenceResult, error) {
