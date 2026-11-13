@@ -11,7 +11,6 @@ Medusa is a cross-platform smart contract fuzzer written in Go, built on go-ethe
 ### Build
 
 - `go build` - Compile the CLI binary for local testing
-- `nix build` - Build using Nix (run after modifying `go.mod` to refresh vendorHash)
 - `./medusa --help` - Verify the built binary
 
 ### Test
@@ -25,20 +24,12 @@ Medusa is a cross-platform smart contract fuzzer written in Go, built on go-ethe
 
 - `goimports -w .` - Format imports and code (groups standard-library and external imports)
 - `go fmt ./...` - Format Go code (required before commits)
-- `golangci-lint run --timeout 5m` - Run comprehensive lint checks (mirrors CI)
-- `dprint fmt` - Format markdown, YAML, and JSON files
-- `prettier --check '**.json' '**/*.md' '**/*.yml' '!(pkg)'` - Check the prose formats enforced by CI
-- `actionlint` - Lint GitHub Actions workflow files
+- `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --timeout 8m` - Run lint checks (the config needs golangci-lint v2)
+- `python3 scripts/check_docs.py` - Check that every CLI flag, config option and cheatcode is documented
 
 ### Run
 
 - `go run . fuzz --config path/to/medusa.json` - Compile and run the fuzzer
-- `nix develop` - Enter the pinned Nix development shell with all dependencies
-
-### Git Hooks
-
-- `prek install` - Install pre-commit hooks (run once after cloning)
-- `prek run` - Manually run all pre-commit checks (the hook tools are available in `nix develop`)
 
 ## Architecture & Code Structure
 
@@ -141,46 +132,35 @@ Explicitly ask the user if these scripts should be run. In more cases than not, 
 - Use `python3 scripts/corpus_diff.py old new` to compare corpora and identify method coverage differences
 - Use `python3 scripts/corpus_stats.py corpus` to generate statistics (sequence count, average length, method frequency)
 
-## Contribution Workflow
+## Workflow
+
+This is a personal fork (`nisedo/medusa`, branch `nisedo-dev`), used only by its owner on macOS. There is no CI, no
+branch protection and no pull request process.
 
 ### Branch & Commit Conventions
 
-- Branch naming: `dev/<short-scope>` (e.g., `dev/coverage-reports`)
+- Commit directly to `nisedo-dev` and push to `origin`. Never push to upstream (`crytic/medusa`).
 - Commit format: `area: intent` (e.g., `fuzzing: tighten revert handling`)
-- Reference issues with `(#123)` when applicable
 
 ### Code Standards
 
 - **Naming**: Packages lowercase (`fuzzing`, `chain`), exported types UpperCamelCase (`TestChain`), private helpers lowerCamel (`newWorker`)
 - **Documentation**: All exported symbols need doc comments. Add inline comments for complex logic.
-- **File naming**: Max 32 characters to avoid Windows path length issues
 - **JSON keys**: Use camelCase rather than snake_case
+- **Paths**: Use the `filepath` package (not `path`) for file operations
 
-### Cross-Platform Considerations
+### Dependencies
 
-- Code must work on Linux, macOS, and Windows
-- Use `filepath` package (not `path`) for file operations - respects system path separators
-- Support both LF (`\n`) and CRLF (`\r\n`) line endings when processing text files
-- Test on multiple platforms before submitting PRs
+- Do not run `go mod tidy`: it removes the security minimums block at the end of `go.mod`. Add a dependency with
+  `go get <module>@<version>` instead.
 
-### Nix Workflow
+### Before Pushing
 
-- When dependencies change, update `vendorHash` in `flake.nix`
-- Run `nix build` - if vendorHash needs updating, Nix will report the correct hash to use
-- Replace the `specified` value with the `got` value from the error message
+Nothing checks a change after it is pushed, so run these first:
 
-### Pre-Commit Checklist
-
-The following checks run automatically via pre-commit hooks (install with `prek install`):
-
-1. `goimports` - Format imports (hook verifies no changes)
-2. `go fmt ./...` - Format Go code (hook verifies no changes)
-3. `golangci-lint run --timeout 5m` - Run linter
-4. `dprint check` - Verify markdown/YAML/JSON formatting
-5. `actionlint` - Lint GitHub Actions workflows
-6. `docs-check` - Run `python3 scripts/check_docs.py` to check docs against public code
-
-Manual checks before submitting PRs:
-
-7. `go test -v ./...` - Run all tests (too slow for pre-commit)
-8. Verify changes work on target platforms
+1. `gofmt -l .` - Must print nothing
+2. `go vet ./...`
+3. The lint command above
+4. `python3 scripts/check_docs.py`
+5. `go test ./...` - Takes about five minutes
+6. `go test -race ./...` - For changes to anything shared between workers (about twelve minutes)
